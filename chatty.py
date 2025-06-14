@@ -18,6 +18,7 @@ from internal.mcp_manager import MCPManager
 from internal.internal_tools import INTERNAL_TOOLS_METADATA, INTERNAL_TOOL_IMPLEMENTATIONS
 from internal.agent_prompt import SYSTEM_PROMPT_TEMPLATE, TOOL_CODE_TAG_START, TOOL_CODE_TAG_END
 from internal.agent_gateway import start_gateway_server
+from internal.code_processor import process_tool_code
 from internal.tool_scaffolding import (
     generate_tools_file_content,
     generate_tools_interface_for_prompt,
@@ -106,14 +107,13 @@ def execute_python_tool(code: str, all_tools_metadata: list):
     logging.info("Executing tool code via 'uv run'...")
     with tempfile.TemporaryDirectory(prefix="ollama_tool_run_") as script_dir:
         # Generate the tools.py file with embedded gateway logic.
-        # The new scaffolding function needs host and port.
         tools_code = generate_tools_file_content(all_tools_metadata, GATEWAY_HOST, GATEWAY_PORT)
         with open(os.path.join(script_dir, TOOLS_GENERATED_FILENAME), 'w', encoding='utf-8') as f: f.write(tools_code)
-        
-        with open(os.path.join(script_dir, "main_script.py"), 'w', encoding='utf-8') as f: f.write(code)
-        
+
+        with open(os.path.join(script_dir, "main.py"), 'w', encoding='utf-8') as f: f.write(code)
+
         # 'uv run' handles synchronous scripts perfectly.
-        proc = subprocess.run(["uv", "run", "main_script.py"], capture_output=True, text=True, timeout=120, cwd=script_dir)
+        proc = subprocess.run(["uv", "run", "main.py"], capture_output=True, text=True, timeout=120, cwd=script_dir)
 
         # Filter stderr to remove common installation messages
         filtered_stderr = "\n".join([ln for ln in proc.stderr.splitlines() if not (ln.startswith(("Installed ", "Resolved ", "Downloaded ", "Audited ")) or ln.strip()=="")])
@@ -168,15 +168,30 @@ def run_conversation_loop(model_name: str, conversation_history: list, all_tools
             if interrupted:
                 break  # Exit turn on user interrupt, wait for next user input
 
-            conversation_history.append({"role": "assistant", "content": llm_response})
             tool_code = extract_tool_code(llm_response)
 
             if not tool_code:
+                conversation_history.append({"role": "assistant", "content": llm_response})
                 break  # No tool code, LLM response is final for this turn.
 
-            # Tool code was found, confirm and execute.
-            if confirm_tool_execution(tool_code):
-                execution_result = execute_python_tool(tool_code, all_tools_metadata)
+            # Process the extracted code to fix dependencies and format for uv.
+            processed = process_tool_code(tool_code)
+            uv_code = processed['uv_code']
+            llm_history_code = processed['llm_history_code']
+
+            # Replace the original code in the LLM's response with the processed version for history.
+            # This ensures the LLM has an accurate record of what will be run.
+            response_text_part = llm_response.split(TOOL_CODE_TAG_START)[0]
+            llm_response_for_history = (
+                f"{response_text_part}{TOOL_CODE_TAG_START}\n"
+                f"{llm_history_code}\n"
+                f"{TOOL_CODE_TAG_END}"
+            )
+            conversation_history.append({"role": "assistant", "content": llm_response_for_history})
+
+            # Confirm and execute the uv-ready code.
+            if confirm_tool_execution(uv_code):
+                execution_result = execute_python_tool(uv_code, all_tools_metadata)
                 tool_output = display_tool_output(execution_result)
                 feedback_msg = ""
 
@@ -186,7 +201,7 @@ def run_conversation_loop(model_name: str, conversation_history: list, all_tools
                     module_name = match.group(1).strip("'\"") if match else "a required module"
                     feedback_msg = (
                         f"Your code failed with a `ModuleNotFoundError` because it tried to import '{module_name}' without declaring it as a dependency.\n"
-                        f"You MUST fix this. Add the correct package name for '{module_name}' to the dependencies comment at the top of your script. For example: `# /// script\\n# dependencies = [\"package-name\"]\\n# ///`.\n"
+                        f"You MUST fix this. Add the correct package name for '{module_name}' to the dependencies comment at the top of your script. For example: `# dependencies = [\"package-name\"]`.\n"
                         f"Remember, the package name may differ from the import name (e.g., 'bs4' import requires 'beautifulsoup4' package).\n"
                         f"Provide the fully corrected Python code block now."
                     )
@@ -196,7 +211,7 @@ def run_conversation_loop(model_name: str, conversation_history: list, all_tools
                         f"--- TOOL OUTPUT ---\n{tool_output}\n--- END TOOL OUTPUT ---\n\n"
                         f"Based on this output, provide your final answer to the user. If the code failed, instead write a brief status update to the user and then generate a corrected code block to retry the task."
                     )
-                
+
                 conversation_history.append({"role": "user", "content": feedback_msg})
                 # The loop continues, prompting the LLM for its next step.
             else:
