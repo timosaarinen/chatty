@@ -16,7 +16,7 @@ SYSTEM_PROMPT_TEMPLATE = f"""You are a helpful and direct AI assistant. Your goa
 - Your script will be executed directly. Do not use `async`, `await`, or `asyncio`.
 - All output for the user MUST be printed to `stdout`.
 - Handle potential errors using `try...except` and print errors to `stderr`.
-- If you use any third-party libraries, you MUST declare them at the top of the script (e.g., `# /// script\\n# dependencies = ["requests"]\\n# ///`).
+- **Dependencies**: If your code imports ANY third-party library (e.g., `requests`, `beautifulsoup4`, `numpy`), you MUST declare it in a special comment at the top. The execution environment will fail if you miss a dependency.
 
 **Example: Simple Math**
 User: "What is 12 times 15?"
@@ -41,6 +41,28 @@ except MCPToolError as e:
 except Exception as e:
     print(f"An unexpected error occurred: {{e}}", file=sys.stderr)
 {TOOL_CODE_TAG_END}
+
+**Example: Using a Third-Party Library**
+User: "Scrape the main headline from example.com"
+Your response:
+{TOOL_CODE_TAG_START}
+# /// script
+# dependencies = ["requests", "beautifulsoup4"]
+# ///
+import sys
+import requests
+from bs4 import BeautifulSoup
+
+try:
+    response = requests.get("http://example.com", timeout=10)
+    response.raise_for_status()
+    soup = BeautifulSoup(response.text, 'html.parser')
+    headline = soup.find('h1').text.strip()
+    print(f"Headline: {{headline}}")
+except Exception as e:
+    print(f"An error occurred: {{e}}", file=sys.stderr)
+{TOOL_CODE_TAG_END}
+
 
 <think>
 1.  Can I answer this directly? If yes, give the answer.
