@@ -125,9 +125,9 @@ def execute_python_tool(code: str, all_tools_metadata: list):
     
 # --- Main Conversation Loop ---
 def run_conversation_loop(model_name: str, conversation_history: list, all_tools_metadata: list):
-    logging.info("Agent is ready. Use /tools or /proxy for debug info. Type 'exit' or 'quit' to end.")
     print(SEPARATOR_MAIN)
-    print("Welcome to Chatty - Code Agent with a Local LLM model and MCP tools!")
+    print("Welcome to Chatty - Code Agent with a Local LLM model and MCP tools")
+    print("\nUse /tools or /proxy for debug info. Type 'exit' or 'quit' to end.")
     print(SEPARATOR_MAIN)
     while True:
         try: user_input = input(f"{PREFIX_USER}").strip()
@@ -196,8 +196,8 @@ def main():
     parser.add_argument(
         "--mcp",
         type=str,
-        default="mcp-servers.json",
-        help="Path to the MCP configuration file (Default: 'mcp-servers.json')."
+        default="mcp-config/demo-and-fetch.json",
+        help="Path to the MCP configuration file."
     )
     args = parser.parse_args()
 

@@ -1,0 +1,7 @@
+{
+  "mcpServers": {
+    "demo-mcp-server": {
+      "run": "uv run demo-mcp-server/server.py"
+    }
+  }
+}
