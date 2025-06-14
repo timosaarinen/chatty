@@ -267,7 +267,7 @@ def main():
 
         # Prepare the system prompt with the discovered tools
         tools_interface_for_prompt = generate_tools_interface_for_prompt(all_tools_metadata)
-        system_prompt_content = SYSTEM_PROMPT_TEMPLATE.replace("{{AVAILABLE_TOOLS_INTERFACE}}", tools_interface_for_prompt)
+        system_prompt_content = SYSTEM_PROMPT_TEMPLATE.replace("{AVAILABLE_TOOLS_INTERFACE}", tools_interface_for_prompt)
         conversation_history = [{"role": "system", "content": system_prompt_content}]
 
         logging.info(f"Using Ollama model: {args.model}")
