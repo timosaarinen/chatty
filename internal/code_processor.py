@@ -45,9 +45,10 @@ def process_tool_code(code: str) -> dict[str, str]:
     Processes LLM-generated tool code to handle dependency declarations.
 
     This function searches for dependency declarations, normalizes them,
-    and wraps them in the `/// script` block required by `uv run`. It can
-    also infer common dependencies and adds implicit dependencies (e.g., 'requests'
-    when 'tools' is used).
+    and wraps them in the `/// script` block required by `uv run`. It also
+    infers dependencies from imports. Crucially, it automatically injects
+    `from tools import ...` if the `Tools` class is used without being imported,
+    and it cleans up erroneous `tools` entries from package dependencies.
 
     It returns a dictionary containing two versions of the code:
     - `uv_code`: Formatted for direct execution with `uv run`.
@@ -80,13 +81,37 @@ def process_tool_code(code: str) -> dict[str, str]:
         else:
             cleaned_lines.append(line)
 
-    # Infer dependencies from code
-    packages.update(_infer_dependencies(cleaned_lines))
-
-    # Add implicit dependency for 'tools' module
-    uses_tools = any(re.search(r"^\s*(from|import)\s+tools", line) for line in cleaned_lines)
-    if uses_tools:
+    # Check for usage of the `Tools` class and correct common LLM errors.
+    code_body_for_check = '\n'.join(cleaned_lines)
+    is_tool_class_used = re.search(r"\bTools\.", code_body_for_check) is not None
+    
+    if is_tool_class_used:
+        # Add implicit dependency for gateway communication via `tools.py`.
         packages.add("requests")
+        # Remove "tools" if the LLM mistakenly added it as a package dependency.
+        packages.discard("tools")
+
+        # If `Tools` is used but not imported, inject the import statement.
+        is_tool_module_imported = any(re.search(r"^\s*(from|import)\s+tools\b", line) for line in cleaned_lines)
+        if not is_tool_module_imported:
+            import_statement = "from tools import Tools, MCPToolError"
+            
+            # Find the last import to insert after, for proper code formatting.
+            last_import_index = -1
+            for i in range(len(cleaned_lines) - 1, -1, -1):
+                if cleaned_lines[i].strip().startswith(('import ', 'from ')):
+                    last_import_index = i
+                    break
+            
+            if last_import_index != -1:
+                cleaned_lines.insert(last_import_index + 1, import_statement)
+            else:
+                # No existing imports, add near top (respecting shebang).
+                insert_pos = 1 if cleaned_lines and cleaned_lines[0].startswith('#!') else 0
+                cleaned_lines.insert(insert_pos, import_statement)
+
+    # Infer any other dependencies from the code.
+    packages.update(_infer_dependencies(cleaned_lines))
 
     final_code_body = '\n'.join(cleaned_lines)
 
