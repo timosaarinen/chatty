@@ -196,13 +196,25 @@ def main():
     parser.add_argument("--debug", action="store_true", help="Enable DEBUG level logging (overrides --verbose).")
     args = parser.parse_args()
 
-    # --- Configure Logging ---
+    # --- Configure Logging & UI ---
     log_level = "WARNING"
     if args.verbose: log_level = "INFO"
     if args.debug: log_level = "DEBUG"
-    logging.basicConfig(level=log_level, format="%(message)s", datefmt="[%X]", handlers=[RichHandler(rich_tracebacks=True)])
 
-    console = Console(theme={"log.text": ""})
+    console = Console()
+    # Configure handler to be minimal, as the code controls the output format.
+    # This prevents RichHandler from adding its own timestamps or log levels.
+    handler = RichHandler(
+        console=console,
+        show_time=False,
+        show_level=False,
+        show_path=False,
+        rich_tracebacks=True,
+    )
+    logging.basicConfig(
+        level=log_level, format="%(message)s", datefmt="[%X]", handlers=[handler]
+    )
+
     ui = TerminalUI(console)
 
     check_prerequisites(ui)
