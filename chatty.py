@@ -129,11 +129,14 @@ def run_conversation_loop(model_name: str, conversation_history: list, all_tools
     print("Welcome to Chatty - Code Agent with a Local LLM model and MCP tools")
     print("\nUse /tools or /proxy for debug info. Type 'exit' or 'quit' to end.")
     print(SEPARATOR_MAIN)
-    while True:
-        try: user_input = input(f"{PREFIX_USER}").strip()
-        except KeyboardInterrupt: print("\nExiting gracefully..."); break
 
-        # Commands
+    while True:
+        try:
+            user_input = input(f"{PREFIX_USER}").strip()
+        except KeyboardInterrupt:
+            print("\nExiting gracefully...")
+            break
+
         if user_input.lower() in ["exit", "quit"]:
             break
         elif user_input.lower() == "/tools":
@@ -146,40 +149,47 @@ def run_conversation_loop(model_name: str, conversation_history: list, all_tools
             continue
         elif user_input.lower() == "/proxy":
             print("--- GENERATED tools.py PROXY CONTENT ---")
-            proxy_content = generate_tools_file_content(all_tools_metadata)
-            print(proxy_content)
+            print(generate_tools_file_content(all_tools_metadata))
             print(SEPARATOR_SUB)
             continue
-        
+
         conversation_history.append({"role": "user", "content": user_input})
-        llm_response, interrupted = prompt_llm_stream(model_name, conversation_history)
-        if interrupted: continue
-        
-        conversation_history.append({"role": "assistant", "content": llm_response})
-        tool_code = extract_tool_code(llm_response)
 
-        if tool_code:
-            print(f"\n{PREFIX_ASSISTANT_PROPOSES_TOOL}\n{SEPARATOR_MAIN}")
-            print(textwrap.indent(tool_code, "  ")); print(SEPARATOR_MAIN)
-            if input("Execute this Python code? (y/n): ").strip().lower() == 'y':
+        # This inner loop handles a full "turn", which may involve multiple tool calls
+        # until the LLM provides a final answer without a tool.
+        while True:
+            llm_response, interrupted = prompt_llm_stream(model_name, conversation_history)
+            if interrupted:
+                break  # Exit turn on user interrupt, wait for next user input
+
+            conversation_history.append({"role": "assistant", "content": llm_response})
+            tool_code = extract_tool_code(llm_response)
+
+            if not tool_code:
+                break  # No tool code, LLM response is final for this turn.
+
+            # Tool code was found, confirm and execute.
+            if confirm_tool_execution(tool_code):
                 execution_result = execute_python_tool(tool_code, all_tools_metadata)
-                print(f"{PREFIX_TOOL_OUTPUT}", end="")
-                output_parts = [f"STDOUT:\n{s}" for s in [execution_result['stdout']] if s] + \
-                               [f"STDERR:\n{s}" for s in [execution_result['stderr']] if s] + \
-                               [f"SYSTEM_ERROR: {s}" for s in [execution_result['error']] if s]
-                tool_feedback_for_llm = "\n\n".join(output_parts) or "Script executed with no output."
-                print(tool_feedback_for_llm)
+                tool_output = display_tool_output(execution_result)
 
-                # Append tool execution feedback for LLM and ask for final response
-                feedback_msg = f"Your code was executed. Output:\n\n{tool_feedback_for_llm}\n\nBased on this, provide your final answer to my request: '{user_input}'"
+                feedback_msg = (
+                    f"Your code was executed. Output:\n\n{tool_output}\n\n"
+                    f"Based on this, provide your final answer **without any code block**, or if the execution failed, write a short status update to user and generate corrected code block."
+                )
+                #print("[FEEDBACK MSG]", feedback_msg) # DEBUG:
                 conversation_history.append({"role": "user", "content": feedback_msg})
-                final_response, _ = prompt_llm_stream(model_name, conversation_history)
-                conversation_history.append({"role": "assistant", "content": final_response})
+                # The loop continues, prompting the LLM for its next step.
             else:
                 logging.info("Tool execution declined by user.")
-                conversation_history.append({"role": "user", "content": "The user declined. Respond without running code."})
+                decline_msg = "The user declined to run the code. Acknowledge this and respond to the original request without using tools."
+                conversation_history.append({"role": "user", "content": decline_msg})
+
+                # Get one final response from the LLM and then end the turn.
                 final_response, _ = prompt_llm_stream(model_name, conversation_history)
                 conversation_history.append({"role": "assistant", "content": final_response})
+                break  # Exit the tool-use loop for this turn.
+
         print(SEPARATOR_SUB)
 
 # --- Main Application Orchestrator ---
