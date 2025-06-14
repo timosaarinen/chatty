@@ -112,7 +112,6 @@ def execute_python_tool(code: str, all_tools_metadata: list):
 # --- Main Conversation Loop ---
 def run_conversation_loop(model_name: str, conversation_history: list, all_tools_metadata: list, ui: TerminalUI):
     """The main REPL for the agent."""
-    ui.display_splash_screen()
     logging.info(f"Using Ollama model: {model_name}")
 
     while True:
@@ -240,6 +239,10 @@ def main():
         with ui.console.status("[bold green]Starting MCP servers...", spinner="dots"):
             mcp_manager.startup()
         
+        # This explicit print ensures the cursor moves to a new line, preventing
+        # the splash screen from overwriting the final status or log line.
+        ui.console.print()
+        
         all_tools_metadata = INTERNAL_TOOLS_METADATA + mcp_manager.get_all_tools_metadata()
         if not all_tools_metadata:
             ui.display_warning("No tools were loaded (internal or MCP). The agent will have limited capabilities.")
@@ -253,6 +256,7 @@ def main():
         logging.debug(f"SYSTEM PROMPT:\n{system_prompt_content}")
         conversation_history = [{"role": "system", "content": system_prompt_content}]
 
+        ui.display_splash_screen()
         run_conversation_loop(args.model, conversation_history, all_tools_metadata, ui)
 
     except Exception as e:
