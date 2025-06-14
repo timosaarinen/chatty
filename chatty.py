@@ -19,9 +19,8 @@ from internal.internal_tools import INTERNAL_TOOLS_METADATA, INTERNAL_TOOL_IMPLE
 from internal.agent_prompt import SYSTEM_PROMPT_TEMPLATE, TOOL_CODE_TAG_START, TOOL_CODE_TAG_END
 from internal.agent_gateway import start_gateway_server
 from internal.tool_scaffolding import (
-    mcp_proxy_lib_code_factory,
     generate_tools_file_content,
-    MCP_PROXY_LIB_FILENAME,
+    generate_tools_interface_for_prompt,
     TOOLS_GENERATED_FILENAME,
 )
 
@@ -106,15 +105,14 @@ def display_tool_output(execution_result):
 def execute_python_tool(code: str, all_tools_metadata: list):
     logging.info("Executing tool code via 'uv run'...")
     with tempfile.TemporaryDirectory(prefix="ollama_tool_run_") as script_dir:
-        # Pass gateway host/port to the scaffolding function
-        proxy_lib_code = mcp_proxy_lib_code_factory(GATEWAY_HOST, GATEWAY_PORT)
-        with open(os.path.join(script_dir, MCP_PROXY_LIB_FILENAME), 'w', encoding='utf-8') as f: f.write(proxy_lib_code)
-        
-        tools_code = generate_tools_file_content(all_tools_metadata)
+        # Generate the tools.py file with embedded gateway logic.
+        # The new scaffolding function needs host and port.
+        tools_code = generate_tools_file_content(all_tools_metadata, GATEWAY_HOST, GATEWAY_PORT)
         with open(os.path.join(script_dir, TOOLS_GENERATED_FILENAME), 'w', encoding='utf-8') as f: f.write(tools_code)
         
         with open(os.path.join(script_dir, "main_script.py"), 'w', encoding='utf-8') as f: f.write(code)
         
+        # 'uv run' handles synchronous scripts perfectly.
         proc = subprocess.run(["uv", "run", "main_script.py"], capture_output=True, text=True, timeout=120, cwd=script_dir)
 
         # Filter stderr to remove common installation messages
@@ -127,7 +125,8 @@ def execute_python_tool(code: str, all_tools_metadata: list):
 def run_conversation_loop(model_name: str, conversation_history: list, all_tools_metadata: list):
     print(SEPARATOR_MAIN)
     print("Welcome to Chatty - Code Agent with a Local LLM model and MCP tools")
-    print("\nUse /tools or /proxy for debug info. Type 'exit' or 'quit' to end.")
+    print("\nUse /history, /tools or /proxy for debug info.");
+    print("Type 'exit' or 'quit' to end.")
     print(SEPARATOR_MAIN)
 
     while True:
@@ -139,6 +138,13 @@ def run_conversation_loop(model_name: str, conversation_history: list, all_tools
 
         if user_input.lower() in ["exit", "quit"]:
             break
+        elif user_input.lower() == "/history":
+            print("--- CONVERSATION HISTORY ---")
+            for message in conversation_history:
+                role = "USER" if message["role"] == "user" else "ASSISTANT"
+                print(f"{role}: {message['content']}")
+            print(SEPARATOR_SUB)
+            continue
         elif user_input.lower() == "/tools":
             print("--- AVAILABLE TOOLS (Internal + MCP) ---")
             if all_tools_metadata:
@@ -149,7 +155,7 @@ def run_conversation_loop(model_name: str, conversation_history: list, all_tools
             continue
         elif user_input.lower() == "/proxy":
             print("--- GENERATED tools.py PROXY CONTENT ---")
-            print(generate_tools_file_content(all_tools_metadata))
+            print(generate_tools_file_content(all_tools_metadata, GATEWAY_HOST, GATEWAY_PORT))
             print(SEPARATOR_SUB)
             continue
 
@@ -247,8 +253,7 @@ def main():
             raise RuntimeError("Failed to start the tool gateway, cannot continue.")
 
         # Prepare the system prompt with the discovered tools
-        tools_interface_code = generate_tools_file_content(all_tools_metadata)
-        tools_interface_for_prompt = re.sub(r'from.*?import.*?\n', '', tools_interface_code, count=2).strip()
+        tools_interface_for_prompt = generate_tools_interface_for_prompt(all_tools_metadata)
         system_prompt_content = SYSTEM_PROMPT_TEMPLATE.replace("{{AVAILABLE_TOOLS_INTERFACE}}", tools_interface_for_prompt)
         conversation_history = [{"role": "system", "content": system_prompt_content}]
 
