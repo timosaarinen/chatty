@@ -207,9 +207,11 @@ def run_conversation_loop(model_name: str, conversation_history: list, all_tools
                     )
                 else:
                     feedback_msg = (
-                        f"Your code was executed. The output is below.\n\n"
+                        f"Your code was executed. The user's original request was: '{user_input}'.\n\n"
                         f"--- TOOL OUTPUT ---\n{tool_output}\n--- END TOOL OUTPUT ---\n\n"
-                        f"Based on this output, provide your final answer to the user. If the code failed, instead write a brief status update to the user and then generate a corrected code block to retry the task."
+                        f"Based on this output, provide your final answer that directly addresses the original request. "
+                        f"If the tool output suggests another step (like fetching more data), only perform it if it is essential for answering the original request. "
+                        f"Otherwise, present the result you already have."
                     )
 
                 conversation_history.append({"role": "user", "content": feedback_msg})

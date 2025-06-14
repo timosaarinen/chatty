@@ -46,61 +46,56 @@ def process_tool_code(code: str) -> dict[str, str]:
 
     This function searches for dependency declarations, normalizes them,
     and wraps them in the `/// script` block required by `uv run`. It can
-    also infer common dependencies if they are not declared.
+    also infer common dependencies and adds implicit dependencies (e.g., 'requests'
+    when 'tools' is used).
 
     It returns a dictionary containing two versions of the code:
     - `uv_code`: Formatted for direct execution with `uv run`.
     - `llm_history_code`: A simplified version for the LLM's conversation history.
     """
-    # Handle the case where the model correctly generates the full uv block.
-    # We still want to simplify it for the history.
-    script_block_match = re.search(r"# /// script\s*\n\s*(#\s*dependencies\s*=\s*\[.*\])\s*\n\s*# ///", code, re.DOTALL)
-    if script_block_match:
-        dep_line = script_block_match.group(1).strip()
-        llm_history_code = code.replace(script_block_match.group(0), dep_line)
-        return {'uv_code': code, 'llm_history_code': llm_history_code}
-
     lines = code.splitlines()
-    
-    dep_line_content = None
-    dep_line_index = -1
-    
+    packages = set()
+
+    # Fast path for existing /// script block
+    script_block_match = re.search(r"(# /// script\s*\n\s*#\s*dependencies\s*=\s*(\[.*\])\s*\n\s*# ///\s*\n?)", code, re.DOTALL)
+    if script_block_match:
+        try:
+            packages.update(json.loads(script_block_match.group(2)))
+        except json.JSONDecodeError:
+            pass # Ignore malformed json
+        # Remove the block for now, we'll add it back later.
+        code = code.replace(script_block_match.group(1), "", 1)
+        lines = code.splitlines()
+
+    # Find and process single-line dependency comments
     dep_regex = re.compile(r"^\s*(#\s*)?dependencies\s*=\s*(\[.*\])")
-    for i, line in enumerate(lines):
+    cleaned_lines = []
+    for line in lines:
         match = dep_regex.match(line)
         if match:
-            dep_line_index = i
-            # Normalize to '# dependencies = [...]'
-            dep_line_content = f'# dependencies = {match.group(2)}'
-            break
+            try:
+                packages.update(json.loads(match.group(2)))
+            except json.JSONDecodeError:
+                pass # Ignore malformed json
+        else:
+            cleaned_lines.append(line)
 
-    # If no dependency line, try to infer it from imports.
-    if dep_line_content is None:
-        inferred_packages = _infer_dependencies(lines)
-        if inferred_packages:
-            dep_line_content = f'# dependencies = {json.dumps(sorted(list(inferred_packages)))}'
-            lines.insert(0, dep_line_content)
-            dep_line_index = 0
-    
-    # If a dependency line was found, ensure it is in the correct format in the lines list.
-    if dep_line_index != -1:
-        lines[dep_line_index] = dep_line_content
-    
-    llm_history_code = '\n'.join(lines)
-    
-    # If a dependency line exists, wrap it for `uv`.
-    if dep_line_content:
-        # Re-create lines from llm_history_code to be safe.
-        uv_lines = llm_history_code.splitlines()
-        for i, line in enumerate(uv_lines):
-            if line.strip() == dep_line_content:
-                uv_lines[i] = f'# /// script\n{dep_line_content}\n# ///'
-                uv_code = '\n'.join(uv_lines)
-                break
-        else: # Should not happen, but as a fallback.
-            uv_code = llm_history_code
+    # Infer dependencies from code
+    packages.update(_infer_dependencies(cleaned_lines))
+
+    # Add implicit dependency for 'tools' module
+    uses_tools = any(re.search(r"^\s*(from|import)\s+tools", line) for line in cleaned_lines)
+    if uses_tools:
+        packages.add("requests")
+
+    final_code_body = '\n'.join(cleaned_lines)
+
+    if packages:
+        dep_line = f'# dependencies = {json.dumps(sorted(list(packages)))}'
+        llm_history_code = f'{dep_line}\n{final_code_body}'
+        uv_code = f'# /// script\n{dep_line}\n# ///\n{final_code_body}'
     else:
-        # No dependencies were found or inferred.
-        uv_code = llm_history_code
-        
-    return {'uv_code': uv_code, 'llm_history_code': llm_history_code}
+        llm_history_code = final_code_body
+        uv_code = final_code_body
+
+    return {'uv_code': uv_code.strip(), 'llm_history_code': llm_history_code.strip()}
