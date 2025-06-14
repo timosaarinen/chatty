@@ -61,7 +61,7 @@ def generate_tools_file_content(tools_metadata: list, host: str, port: int):
             method_sig = ", ".join(param_names)
             kwargs_pass = ", ".join([f"{p}={p}" for p in param_names])
             docstring = textwrap.indent(tool.get("description", "No description provided."), "        ").strip()
-            # TODO: no need for '(Original Name: {tool['name']})' in docstring?
+            
             lines.extend([
                 f"    @staticmethod",
                 f"    def {py_tool_name}({method_sig}):",
@@ -71,6 +71,17 @@ def generate_tools_file_content(tools_metadata: list, host: str, port: int):
             ])
     return "\n".join(lines)
 
+def _map_json_type_to_python_type(json_type: str) -> str:
+    """Maps JSON schema types to Python type hints."""
+    return {
+        "string": "str",
+        "number": "float",
+        "integer": "int",
+        "boolean": "bool",
+        "object": "dict",
+        "array": "list",
+    }.get(json_type, "any")
+
 def generate_tools_interface_for_prompt(tools_metadata: list) -> str:
     """Generates a Python-like interface string for the system prompt."""
     if not tools_metadata:
@@ -79,12 +90,22 @@ def generate_tools_interface_for_prompt(tools_metadata: list) -> str:
     lines = []
     for tool in tools_metadata:
         py_tool_name = tool['name'].replace('/', '_').replace('-', '_')
+        
+        # Handle multi-line descriptions
         description = tool.get("description", "No description provided.")
-        parameters = tool.get('inputSchema', {}).get('properties', {})
-        param_names = list(parameters.keys())
-        method_sig = ", ".join(param_names)
+        description_lines = description.strip().split('\n')
+        lines.append(f'    # Description: {description_lines[0]}')
+        for line in description_lines[1:]:
+            lines.append(f'    # {line.strip()}')
 
-        lines.append(f'    # Description: {description}')
+        # Build method signature with type hints
+        parameters = tool.get('inputSchema', {}).get('properties', {})
+        param_parts = []
+        for param_name, param_schema in parameters.items():
+            param_type = _map_json_type_to_python_type(param_schema.get("type"))
+            param_parts.append(f"{param_name}: {param_type}")
+        method_sig = ", ".join(param_parts)
+
         lines.append(f'    @staticmethod')
         lines.append(f'    def {py_tool_name}({method_sig}): ...')
         lines.append('')
