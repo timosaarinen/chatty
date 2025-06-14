@@ -178,12 +178,25 @@ def run_conversation_loop(model_name: str, conversation_history: list, all_tools
             if confirm_tool_execution(tool_code):
                 execution_result = execute_python_tool(tool_code, all_tools_metadata)
                 tool_output = display_tool_output(execution_result)
+                feedback_msg = ""
 
-                feedback_msg = (
-                    f"Your code was executed. Output:\n\n{tool_output}\n\n"
-                    f"Based on this, provide your final answer **without any code block**, or if the execution failed, write a short status update to user and generate corrected code block."
-                )
-                #print("[FEEDBACK MSG]", feedback_msg) # DEBUG:
+                # Check for ModuleNotFoundError to provide specific feedback
+                if execution_result.get("stderr") and "ModuleNotFoundError" in execution_result["stderr"]:
+                    match = re.search(r"No module named '(\S+)'", execution_result["stderr"])
+                    module_name = match.group(1).strip("'\"") if match else "a required module"
+                    feedback_msg = (
+                        f"Your code failed with a `ModuleNotFoundError` because it tried to import '{module_name}' without declaring it as a dependency.\n"
+                        f"You MUST fix this. Add the correct package name for '{module_name}' to the dependencies comment at the top of your script. For example: `# /// script\\n# dependencies = [\"package-name\"]\\n# ///`.\n"
+                        f"Remember, the package name may differ from the import name (e.g., 'bs4' import requires 'beautifulsoup4' package).\n"
+                        f"Provide the fully corrected Python code block now."
+                    )
+                else:
+                    feedback_msg = (
+                        f"Your code was executed. The output is below.\n\n"
+                        f"--- TOOL OUTPUT ---\n{tool_output}\n--- END TOOL OUTPUT ---\n\n"
+                        f"Based on this output, provide your final answer to the user. If the code failed, instead write a brief status update to the user and then generate a corrected code block to retry the task."
+                    )
+                
                 conversation_history.append({"role": "user", "content": feedback_msg})
                 # The loop continues, prompting the LLM for its next step.
             else:
