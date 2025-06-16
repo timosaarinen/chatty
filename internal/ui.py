@@ -42,8 +42,35 @@ class TerminalUI:
             border_style="dim blue"
         )
         self.console.print(panel)
-        self.console.print("Use /clear for new chat and /history, /history-raw, /tools, or /proxy for info. Type 'exit' or 'quit' to end.", justify="center")
+        self.console.print("Type '/help' for a list of commands. Type 'exit' or 'quit' to end.", justify="center")
         self.console.print()
+
+    def display_help(self):
+        """Displays the help message with available commands."""
+        table = Table(show_header=False, box=None, expand=False)
+        table.add_column("Command", style="cyan", no_wrap=True)
+        table.add_column("Description")
+
+        commands = {
+            "/help": "Show this help message.",
+            "/clear": "Clear the current conversation history.",
+            "/history": "Show the formatted conversation history.",
+            "/history-raw": "Show the raw JSON conversation history for the LLM.",
+            "/tools": "Show available tools as a JSON object.",
+            "/proxy": "Show the generated 'tools.py' proxy code.",
+            "exit / quit": "Exit the application."
+        }
+
+        for cmd, desc in commands.items():
+            table.add_row(f"[bold]{cmd}[/bold]", desc)
+
+        panel = Panel(
+            table,
+            title="[bold]Available Commands[/]",
+            border_style="dim blue",
+            expand=False
+        )
+        self.console.print(panel)
 
     def display_info(self, message: str):
         self.console.print(f"[*] {message}", style="dim")
