@@ -54,6 +54,7 @@ class TerminalUI:
         commands = {
             "/help": "Show this help message.",
             "/clear": "Clear the current conversation history.",
+            "/reload": "Reload prompts from the 'prompts/' directory.",
             "/history": "Show the formatted conversation history.",
             "/history-raw": "Show the raw JSON conversation history for the LLM.",
             "/tools": "Show available tools as a JSON object.",

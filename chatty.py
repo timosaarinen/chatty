@@ -20,7 +20,8 @@ from rich.logging import RichHandler
 
 from internal.mcp_manager import MCPManager
 from internal.internal_tools import INTERNAL_TOOLS_METADATA, INTERNAL_TOOL_IMPLEMENTATIONS
-from internal.agent_prompt import SYSTEM_PROMPT_TEMPLATE, TOOL_CODE_TAG_START, TOOL_CODE_TAG_END
+from internal.agent_prompt import TOOL_CODE_TAG_START, TOOL_CODE_TAG_END
+from internal.prompt_manager import PromptManager
 from internal.agent_gateway import start_gateway_server
 from internal.code_processor import process_tool_code
 from internal.tool_scaffolding import (
@@ -36,6 +37,22 @@ GATEWAY_HOST = "localhost"
 GATEWAY_PORT = 8989
 
 # --- Core Agent Logic Helpers ---
+def _generate_system_prompt(prompt_manager: PromptManager, all_tools_metadata: list) -> str | None:
+    """Generates the full system prompt content from the template and tools."""
+    system_prompt_template = prompt_manager.get("system")
+    if not system_prompt_template:
+        return None
+    
+    tools_interface_for_prompt = generate_tools_interface_for_prompt(all_tools_metadata)
+    
+    return system_prompt_template.replace(
+        "{AVAILABLE_TOOLS_INTERFACE}", tools_interface_for_prompt
+    ).replace(
+        "{TOOL_CODE_TAG_START}", TOOL_CODE_TAG_START
+    ).replace(
+        "{TOOL_CODE_TAG_END}", TOOL_CODE_TAG_END
+    )
+
 def check_prerequisites(ui: TerminalUI):
     """Checks for required command-line tools and services."""
     ui.display_info("Checking prerequisites...")
@@ -110,7 +127,7 @@ def execute_python_tool(code: str, all_tools_metadata: list):
         return {"stdout": proc.stdout.strip(), "stderr": filtered_stderr, "error": f"Script exited with code {proc.returncode}." if proc.returncode != 0 else None}
 
 # --- Main Conversation Loop ---
-def run_conversation_loop(model_name: str, conversation_history: list, all_tools_metadata: list, ui: TerminalUI):
+def run_conversation_loop(model_name: str, conversation_history: list, all_tools_metadata: list, ui: TerminalUI, prompt_manager: PromptManager):
     """The main REPL for the agent."""
     logging.info(f"Using Ollama model: {model_name}")
 
@@ -141,6 +158,21 @@ def run_conversation_loop(model_name: str, conversation_history: list, all_tools
         elif user_input.lower() == "/proxy":
             proxy_code = generate_tools_file_content(all_tools_metadata, GATEWAY_HOST, GATEWAY_PORT)
             ui.display_proxy_code(proxy_code)
+            continue
+        elif user_input.lower() == "/reload":
+            ui.display_info("Reloading prompts from disk...")
+            prompt_manager.load()
+            new_system_prompt = _generate_system_prompt(prompt_manager, all_tools_metadata)
+            if not new_system_prompt:
+                ui.display_error("Failed to reload 'system.txt'. The prompt may be missing or unreadable.")
+                continue
+
+            if conversation_history and conversation_history[0]["role"] == "system":
+                conversation_history[0]["content"] = new_system_prompt
+                ui.display_info("System prompt has been updated.")
+                logging.debug(f"NEW SYSTEM PROMPT:\n{new_system_prompt}")
+            else:
+                ui.display_warning("Could not find system prompt in history to update.")
             continue
         elif user_input.lower() == "/clear":
             # Re-initialize history, preserving the system prompt.
@@ -230,6 +262,7 @@ def main():
     ui = TerminalUI(console)
 
     check_prerequisites(ui)
+    prompt_manager = PromptManager(prompt_directory="prompts")
 
     if not args.model:
         ui.display_error("The --model argument is required.")
@@ -264,13 +297,16 @@ def main():
         if not http_server:
             raise RuntimeError("Failed to start the tool gateway, cannot continue.")
 
-        tools_interface_for_prompt = generate_tools_interface_for_prompt(all_tools_metadata)
-        system_prompt_content = SYSTEM_PROMPT_TEMPLATE.replace("{AVAILABLE_TOOLS_INTERFACE}", tools_interface_for_prompt)
+        system_prompt_content = _generate_system_prompt(prompt_manager, all_tools_metadata)
+        if not system_prompt_content:
+            ui.display_error("System prompt 'prompts/system.txt' not found or is empty. Please create it.")
+            sys.exit(1)
+
         logging.debug(f"SYSTEM PROMPT:\n{system_prompt_content}")
         conversation_history = [{"role": "system", "content": system_prompt_content}]
 
         ui.display_splash_screen()
-        run_conversation_loop(args.model, conversation_history, all_tools_metadata, ui)
+        run_conversation_loop(args.model, conversation_history, all_tools_metadata, ui, prompt_manager)
 
     except Exception as e:
         logging.critical(f"A critical error occurred in the main orchestrator: {e}", exc_info=args.debug)
