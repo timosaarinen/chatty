@@ -42,7 +42,7 @@ class TerminalUI:
             border_style="dim blue"
         )
         self.console.print(panel)
-        self.console.print("Use /history, /tools, or /proxy for info. Type 'exit' or 'quit' to end.", justify="center")
+        self.console.print("Use /clear for new chat and /history, /history-raw, /tools, or /proxy for info. Type 'exit' or 'quit' to end.", justify="center")
         self.console.print()
 
     def display_info(self, message: str):
@@ -137,6 +137,13 @@ class TerminalUI:
             style = self.theme["user"] if message["role"] == "user" else self.theme["assistant"]
             title = "👤 USER" if message["role"] == "user" else "🤖 ASSISTANT"
             self.console.print(Panel(message["content"], title=title, border_style=style, expand=False))
+        self.console.rule(style=self.theme["separator"])
+
+    def display_raw_history(self, history: List[Dict[str, str]]):
+        """Displays the raw conversation history, including system prompt, as JSON."""
+        self.console.rule("[bold]Raw Conversation History (for LLM)", style=self.theme["separator"])
+        history_json = json.dumps(history, indent=2)
+        self.console.print(Syntax(history_json, "json", theme="monokai", word_wrap=True))
         self.console.rule(style=self.theme["separator"])
 
     def display_tools(self, all_tools_metadata: List[Dict[str, Any]]):

@@ -129,6 +129,9 @@ def run_conversation_loop(model_name: str, conversation_history: list, all_tools
         elif user_input.lower() == "/history":
             ui.display_history(conversation_history)
             continue
+        elif user_input.lower() == "/history-raw":
+            ui.display_raw_history(conversation_history)
+            continue
         elif user_input.lower() == "/tools":
             ui.display_tools(all_tools_metadata)
             continue
