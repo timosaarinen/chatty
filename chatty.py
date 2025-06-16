@@ -44,6 +44,8 @@ class AppContext:
     prompt_manager: PromptManager
     conversation_history: List[Dict[str, Any]]
     all_tools_metadata: List[Dict[str, Any]]
+    mcp_manager: MCPManager
+    mcp_config_path: str
 
 # --- Configuration: Constants ---
 GATEWAY_HOST = "localhost"
@@ -172,20 +174,53 @@ def run_conversation_loop(context: AppContext):
             proxy_code = generate_tools_file_content(context.all_tools_metadata, context.gateway_host, context.gateway_port)
             context.ui.display_proxy_code(proxy_code)
             continue
-        elif user_input.lower() == "/reload":
-            context.ui.display_info("Reloading prompts from disk...")
-            context.prompt_manager.load()
-            new_system_prompt = _generate_system_prompt(context.prompt_manager, context.all_tools_metadata)
-            if not new_system_prompt:
-                context.ui.display_error("Failed to reload 'system.txt'. The prompt may be missing or unreadable.")
+        elif user_input.lower().startswith("/reload"):
+            parts = user_input.lower().split(maxsplit=1)
+            target = parts[1] if len(parts) > 1 else "all"
+
+            if target not in ["all", "prompts", "mcp"]:
+                context.ui.display_error(f"Invalid reload target '{target}'. Use 'prompts', 'mcp', or leave blank for all.")
                 continue
 
-            if context.conversation_history and context.conversation_history[0]["role"] == "system":
-                context.conversation_history[0]["content"] = new_system_prompt
-                context.ui.display_info("System prompt has been updated.")
-                logging.debug(f"NEW SYSTEM PROMPT:\n{new_system_prompt}")
-            else:
-                context.ui.display_warning("Could not find system prompt in history to update.")
+            prompts_reloaded = False
+            mcp_reloaded = False
+
+            if target in ["all", "prompts"]:
+                context.ui.display_info("Reloading prompts from disk...")
+                context.prompt_manager.load()
+                prompts_reloaded = True
+
+            if target in ["all", "mcp"]:
+                context.ui.display_info(f"Reloading MCP configuration from '{context.mcp_config_path}'...")
+                try:
+                    new_mcp_config = {}
+                    with open(context.mcp_config_path, 'r') as f:
+                        new_mcp_config = json.load(f)
+                    
+                    with context.ui.console.status("[bold green]Restarting MCP servers...", spinner="dots"):
+                        context.mcp_manager.reload(new_mcp_config)
+                    context.ui.console.print()
+                    
+                    context.all_tools_metadata = INTERNAL_TOOLS_METADATA + context.mcp_manager.get_all_tools_metadata()
+                    context.ui.display_info("MCP servers reloaded.")
+                    mcp_reloaded = True
+                except FileNotFoundError:
+                    context.ui.display_error(f"MCP config file not found at '{context.mcp_config_path}'.")
+                except json.JSONDecodeError as e:
+                    context.ui.display_error(f"Error parsing MCP config file: {e}")
+                except Exception as e:
+                    context.ui.display_error(f"An unexpected error occurred during MCP reload: {e}", exc_info=logging.getLogger().isEnabledFor(logging.DEBUG))
+
+            if prompts_reloaded or mcp_reloaded:
+                new_system_prompt = _generate_system_prompt(context.prompt_manager, context.all_tools_metadata)
+                if not new_system_prompt:
+                    context.ui.display_error("Failed to generate system prompt after reload. The 'system.txt' prompt may be missing or unreadable.")
+                elif context.conversation_history and context.conversation_history[0]["role"] == "system":
+                    context.conversation_history[0]["content"] = new_system_prompt
+                    context.ui.display_info("System prompt has been updated with new configuration.")
+                    logging.debug(f"NEW SYSTEM PROMPT:\n{new_system_prompt}")
+                else:
+                    context.ui.display_warning("Could not find system prompt in history to update.")
             continue
         elif user_input.lower() == "/clear":
             # Re-initialize history, preserving the system prompt.
@@ -326,7 +361,9 @@ def main():
             ui=ui,
             prompt_manager=prompt_manager,
             conversation_history=[{"role": "system", "content": system_prompt_content}],
-            all_tools_metadata=all_tools_metadata
+            all_tools_metadata=all_tools_metadata,
+            mcp_manager=mcp_manager,
+            mcp_config_path=args.mcp
         )
 
         ui.display_splash_screen()

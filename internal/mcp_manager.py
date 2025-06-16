@@ -1,6 +1,7 @@
 # mcp_manager.py
 import json
 import logging
+import os
 import shlex
 import subprocess
 import sys
@@ -14,7 +15,7 @@ REQUEST_TIMEOUT = 30
 class _MCPServerConnection:
     def __init__(self, name, config):
         self.name = name
-        self.run_command = shlex.split(config["run"])
+        self.run_command, self.env = self._parse_config(config)
         self.process = None
         self.stderr_thread = None
         self.stdout_queue = Queue()
@@ -26,10 +27,33 @@ class _MCPServerConnection:
         self.resources = []
         self.prompts = []
 
+    def _parse_config(self, config: dict) -> tuple[list[str] | None, dict | None]:
+        """Parses server config, supporting legacy 'run' and standard 'command' formats."""
+        if "run" in config:
+            # Legacy format: "run": "command with args"
+            return shlex.split(config["run"]), None
+        elif "command" in config:
+            # Standard format: "command": "executable", "args": [...]
+            command = [config["command"]]
+            if "args" in config and isinstance(config["args"], list):
+                command.extend(config["args"])
+            
+            env = None
+            if "env" in config and isinstance(config["env"], dict):
+                env = os.environ.copy()
+                env.update({k: str(v) for k, v in config["env"].items()})
+            return command, env
+        else:
+            logging.error(f"[{self.name}] Invalid server config: must contain a 'run' string or a 'command' key. Disabling.")
+            return None, None
+
     def start(self):
+        if not self.run_command:
+            return False
+            
         logging.info(f"[{self.name}] Starting server with command: '{' '.join(self.run_command)}'")
         try:
-            self.process = subprocess.Popen(self.run_command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, encoding="utf-8")
+            self.process = subprocess.Popen(self.run_command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, encoding="utf-8", env=self.env)
         except FileNotFoundError:
             logging.error(f"[{self.name}] Command not found: {self.run_command[0]}. Is it in your PATH?")
             return False
@@ -48,9 +72,11 @@ class _MCPServerConnection:
                 self.process.kill()
 
     def _enqueue_stdout(self):
+        if not self.process: return
         for line in iter(self.process.stdout.readline, ''): self.stdout_queue.put(line)
 
     def _log_stderr(self):
+        if not self.process: return
         for line in iter(self.process.stderr.readline, ""): logging.warning(f"[{self.name} LOG]: {line.strip()}")
 
     def send_request(self, method, params=None):
@@ -68,6 +94,7 @@ class _MCPServerConnection:
             self._send_message(message)
 
     def _send_message(self, message_dict):
+        if not self.process or not self.process.stdin: return
         json_str = json.dumps(message_dict)
         logging.info(f"[{self.name}] SENT: {json_str}")
         try:
@@ -93,10 +120,20 @@ class _MCPServerConnection:
 
 class MCPManager:
     def __init__(self, mcp_config: dict):
+        self._reinit(mcp_config)
+
+    def _reinit(self, mcp_config: dict):
         server_configs = mcp_config.get("mcpServers", {})
         self.tool_patches = mcp_config.get("tool_patches", {})
         self.servers = {name: _MCPServerConnection(name, config) for name, config in server_configs.items()}
         self._tool_to_server_map = {}
+
+    def reload(self, mcp_config: dict):
+        logging.info("--- MCP Manager Reloading ---")
+        self.shutdown()
+        self._reinit(mcp_config)
+        self.startup()
+        logging.info("--- MCP Manager Reload Complete ---")
 
     def startup(self):
         logging.info("--- MCP Manager Starting Up ---")
@@ -162,7 +199,7 @@ class MCPManager:
     def get_all_tools_metadata(self) -> list:
         all_metadata = []
         for server in self.servers.values():
-            if server.process:
+            if server.process and server.process.poll() is None:
                 all_metadata.extend(server.tools)
         return all_metadata
 
