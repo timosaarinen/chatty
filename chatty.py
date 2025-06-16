@@ -14,6 +14,7 @@ import textwrap
 import argparse
 import logging
 from typing import List, Dict, Any
+from dataclasses import dataclass
 
 from rich.console import Console
 from rich.logging import RichHandler
@@ -31,8 +32,20 @@ from internal.tool_scaffolding import (
 )
 from internal.ui import TerminalUI
 
+# --- Application Context ---
+@dataclass
+class AppContext:
+    """A container for shared application state, configuration, and services."""
+    model_name: str
+    ollama_base_url: str
+    gateway_host: str
+    gateway_port: int
+    ui: TerminalUI
+    prompt_manager: PromptManager
+    conversation_history: List[Dict[str, Any]]
+    all_tools_metadata: List[Dict[str, Any]]
+
 # --- Configuration: Constants ---
-OLLAMA_BASE_URL = "http://localhost:11434"
 GATEWAY_HOST = "localhost"
 GATEWAY_PORT = 8989
 
@@ -53,7 +66,7 @@ def _generate_system_prompt(prompt_manager: PromptManager, all_tools_metadata: l
         "{TOOL_CODE_TAG_END}", TOOL_CODE_TAG_END
     )
 
-def check_prerequisites(ui: TerminalUI):
+def check_prerequisites(ui: TerminalUI, ollama_base_url: str):
     """Checks for required command-line tools and services."""
     ui.display_info("Checking prerequisites...")
     if not shutil.which("uv"):
@@ -62,17 +75,17 @@ def check_prerequisites(ui: TerminalUI):
     if not shutil.which("npx"):
         ui.display_warning("'npx' command not found. MCP servers requiring Node.js may fail.")
     try:
-        requests.get(OLLAMA_BASE_URL, timeout=3).raise_for_status()
+        requests.get(ollama_base_url, timeout=3).raise_for_status()
     except requests.RequestException:
-        ui.display_error(f"Ollama server not reachable at {OLLAMA_BASE_URL}. Is it running?")
+        ui.display_error(f"Ollama server not reachable at {ollama_base_url}. Is it running?")
         sys.exit(1)
 
-def prompt_llm_stream(model_name: str, messages_history: list, ui: TerminalUI):
+def prompt_llm_stream(context: AppContext, messages_history: list):
     """Streams the LLM response to the terminal."""
-    url = f"{OLLAMA_BASE_URL}/api/chat"
-    payload = {"model": model_name, "messages": messages_history, "stream": True, "options": {"temperature": 0.0}}
+    url = f"{context.ollama_base_url}/api/chat"
+    payload = {"model": context.model_name, "messages": messages_history, "stream": True, "options": {"temperature": 0.0}}
     full_response_content = ""
-    ui.display_assistant_response_start()
+    context.ui.display_assistant_response_start()
     try:
         with requests.post(url, json=payload, stream=True, timeout=300) as response:
             response.raise_for_status()
@@ -81,7 +94,7 @@ def prompt_llm_stream(model_name: str, messages_history: list, ui: TerminalUI):
                     chunk = json.loads(line.decode('utf-8'))
                     content = chunk.get('message', {}).get('content', '')
                     if content:
-                        ui.display_assistant_stream_chunk(content)
+                        context.ui.display_assistant_stream_chunk(content)
                         full_response_content += content
                     if chunk.get("done"):
                         break
@@ -89,16 +102,16 @@ def prompt_llm_stream(model_name: str, messages_history: list, ui: TerminalUI):
         logging.critical(f"Ollama connection error: {e}. Exiting.")
         sys.exit(1)
     except KeyboardInterrupt:
-        ui.display_warning("\nLLM generation interrupted by user.")
+        context.ui.display_warning("\nLLM generation interrupted by user.")
         return full_response_content, True
     finally:
-        ui.display_assistant_response_end()
+        context.ui.display_assistant_response_end()
     return full_response_content, False
 
-def list_ollama_models(ui: TerminalUI):
+def list_ollama_models(ui: TerminalUI, ollama_base_url: str):
     """Fetches and displays available Ollama models."""
     try:
-        response = requests.get(f"{OLLAMA_BASE_URL}/api/tags")
+        response = requests.get(f"{ollama_base_url}/api/tags")
         response.raise_for_status()
         data = response.json()
         ui.display_ollama_models(data.get("models", []))
@@ -110,11 +123,11 @@ def extract_tool_code(response_text: str) -> str | None:
     match = re.search(f"{re.escape(TOOL_CODE_TAG_START)}(.*?){re.escape(TOOL_CODE_TAG_END)}", response_text, re.DOTALL)
     return textwrap.dedent(match.group(1).strip()) if match else None
 
-def execute_python_tool(code: str, all_tools_metadata: list):
+def execute_python_tool(code: str, context: AppContext):
     """Executes the given Python code in a sandboxed environment using 'uv run'."""
     logging.info("Executing tool code via 'uv run'...")
     with tempfile.TemporaryDirectory(prefix="ollama_tool_run_") as script_dir:
-        tools_code = generate_tools_file_content(all_tools_metadata, GATEWAY_HOST, GATEWAY_PORT)
+        tools_code = generate_tools_file_content(context.all_tools_metadata, context.gateway_host, context.gateway_port)
         with open(os.path.join(script_dir, TOOLS_GENERATED_FILENAME), 'w', encoding='utf-8') as f: f.write(tools_code)
 
         with open(os.path.join(script_dir, "main.py"), 'w', encoding='utf-8') as f: f.write(code)
@@ -127,73 +140,73 @@ def execute_python_tool(code: str, all_tools_metadata: list):
         return {"stdout": proc.stdout.strip(), "stderr": filtered_stderr, "error": f"Script exited with code {proc.returncode}." if proc.returncode != 0 else None}
 
 # --- Main Conversation Loop ---
-def run_conversation_loop(model_name: str, conversation_history: list, all_tools_metadata: list, ui: TerminalUI, prompt_manager: PromptManager):
+def run_conversation_loop(context: AppContext):
     """The main REPL for the agent."""
-    logging.info(f"Using Ollama model: {model_name}")
+    logging.info(f"Using Ollama model: {context.model_name}")
 
     while True:
         try:
-            user_input = ui.prompt_user().strip()
+            user_input = context.ui.prompt_user().strip()
         except KeyboardInterrupt:
-            ui.console.print("\nExiting gracefully...")
+            context.ui.console.print("\nExiting gracefully...")
             break
         except EOFError:
-            ui.console.print("\nExiting gracefully...")
+            context.ui.console.print("\nExiting gracefully...")
             break
 
         if user_input.lower() in ["exit", "quit"]:
             break
         elif user_input.lower() == "/help":
-            ui.display_help()
+            context.ui.display_help()
             continue
         elif user_input.lower() == "/history":
-            ui.display_history(conversation_history)
+            context.ui.display_history(context.conversation_history)
             continue
         elif user_input.lower() == "/history-raw":
-            ui.display_raw_history(conversation_history)
+            context.ui.display_raw_history(context.conversation_history)
             continue
         elif user_input.lower() == "/tools":
-            ui.display_tools(all_tools_metadata)
+            context.ui.display_tools(context.all_tools_metadata)
             continue
         elif user_input.lower() == "/proxy":
-            proxy_code = generate_tools_file_content(all_tools_metadata, GATEWAY_HOST, GATEWAY_PORT)
-            ui.display_proxy_code(proxy_code)
+            proxy_code = generate_tools_file_content(context.all_tools_metadata, context.gateway_host, context.gateway_port)
+            context.ui.display_proxy_code(proxy_code)
             continue
         elif user_input.lower() == "/reload":
-            ui.display_info("Reloading prompts from disk...")
-            prompt_manager.load()
-            new_system_prompt = _generate_system_prompt(prompt_manager, all_tools_metadata)
+            context.ui.display_info("Reloading prompts from disk...")
+            context.prompt_manager.load()
+            new_system_prompt = _generate_system_prompt(context.prompt_manager, context.all_tools_metadata)
             if not new_system_prompt:
-                ui.display_error("Failed to reload 'system.txt'. The prompt may be missing or unreadable.")
+                context.ui.display_error("Failed to reload 'system.txt'. The prompt may be missing or unreadable.")
                 continue
 
-            if conversation_history and conversation_history[0]["role"] == "system":
-                conversation_history[0]["content"] = new_system_prompt
-                ui.display_info("System prompt has been updated.")
+            if context.conversation_history and context.conversation_history[0]["role"] == "system":
+                context.conversation_history[0]["content"] = new_system_prompt
+                context.ui.display_info("System prompt has been updated.")
                 logging.debug(f"NEW SYSTEM PROMPT:\n{new_system_prompt}")
             else:
-                ui.display_warning("Could not find system prompt in history to update.")
+                context.ui.display_warning("Could not find system prompt in history to update.")
             continue
         elif user_input.lower() == "/clear":
             # Re-initialize history, preserving the system prompt.
-            system_prompt = conversation_history[0]
-            conversation_history.clear()
-            conversation_history.append(system_prompt)
-            ui.display_info("Conversation history has been cleared.")
+            system_prompt = context.conversation_history[0]
+            context.conversation_history.clear()
+            context.conversation_history.append(system_prompt)
+            context.ui.display_info("Conversation history has been cleared.")
             continue
 
-        conversation_history.append({"role": "user", "content": user_input})
+        context.conversation_history.append({"role": "user", "content": user_input})
 
         # This inner loop handles a full "turn", which may involve multiple tool calls
         while True:
-            llm_response, interrupted = prompt_llm_stream(model_name, conversation_history, ui)
+            llm_response, interrupted = prompt_llm_stream(context, context.conversation_history)
             if interrupted:
                 break  # Exit turn on user interrupt, wait for next user input
 
             tool_code = extract_tool_code(llm_response)
 
             if not tool_code:
-                conversation_history.append({"role": "assistant", "content": llm_response})
+                context.conversation_history.append({"role": "assistant", "content": llm_response})
                 break  # No tool code, LLM response is final for this turn.
 
             processed = process_tool_code(tool_code)
@@ -201,11 +214,11 @@ def run_conversation_loop(model_name: str, conversation_history: list, all_tools
             
             response_text_part = llm_response.split(TOOL_CODE_TAG_START)[0]
             llm_response_for_history = f"{response_text_part}{TOOL_CODE_TAG_START}\n{llm_history_code}\n{TOOL_CODE_TAG_END}"
-            conversation_history.append({"role": "assistant", "content": llm_response_for_history})
+            context.conversation_history.append({"role": "assistant", "content": llm_response_for_history})
 
-            if ui.confirm_tool_execution(uv_code):
-                execution_result = execute_python_tool(uv_code, all_tools_metadata)
-                tool_output = ui.display_tool_output(execution_result)
+            if context.ui.confirm_tool_execution(uv_code):
+                execution_result = execute_python_tool(uv_code, context)
+                tool_output = context.ui.display_tool_output(execution_result)
                 feedback_msg = ""
 
                 if execution_result.get("stderr") and "ModuleNotFoundError" in execution_result["stderr"]:
@@ -216,17 +229,17 @@ def run_conversation_loop(model_name: str, conversation_history: list, all_tools
                     feedback_msg = f"Your code was executed. The user's original request was: '{user_input}'.\n\n--- TOOL OUTPUT ---\n{tool_output}\n--- END TOOL OUTPUT ---\n\nBased on this output, provide your final answer that directly addresses the original request. If the tool output suggests another step, only perform it if essential for answering the original request."
                 
                 logging.debug(f"FEEDBACK TO LLM:\n{feedback_msg}")
-                conversation_history.append({"role": "user", "content": feedback_msg})
+                context.conversation_history.append({"role": "user", "content": feedback_msg})
             else:
                 logging.info("Tool execution declined by user.")
                 decline_msg = "The user declined to run the code. Acknowledge this and respond to the original request without using tools."
-                conversation_history.append({"role": "user", "content": decline_msg})
+                context.conversation_history.append({"role": "user", "content": decline_msg})
                 
-                final_response, _ = prompt_llm_stream(model_name, conversation_history, ui)
-                conversation_history.append({"role": "assistant", "content": final_response})
+                final_response, _ = prompt_llm_stream(context, context.conversation_history)
+                context.conversation_history.append({"role": "assistant", "content": final_response})
                 break
         
-        ui.new_turn()
+        context.ui.new_turn()
 
 # --- Main Application Orchestrator ---
 def main():
@@ -235,6 +248,7 @@ def main():
         formatter_class=argparse.RawTextHelpFormatter
     )
     parser.add_argument("--model", type=str, help="Ollama model to use (e.g., 'llama3:latest').\nThis argument is required.")
+    parser.add_argument("--ollama", type=str, default="http://localhost:11434", help="Base URL for the Ollama API server.\nDefault: http://localhost:11434")
     parser.add_argument("--mcp", type=str, default="mcp-config/demo-and-fetch.json", help="Path to the MCP configuration file.")
     parser.add_argument("--verbose", action="store_true", help="Enable INFO level logging.")
     parser.add_argument("--debug", action="store_true", help="Enable DEBUG level logging (overrides --verbose).")
@@ -261,12 +275,12 @@ def main():
 
     ui = TerminalUI(console)
 
-    check_prerequisites(ui)
+    check_prerequisites(ui, args.ollama)
     prompt_manager = PromptManager(prompt_directory="prompts")
 
     if not args.model:
         ui.display_error("The --model argument is required.")
-        list_ollama_models(ui)
+        list_ollama_models(ui, args.ollama)
         ui.console.print("\nUsage: [bold]uv run chatty.py --model <model_name>[/bold]")
         sys.exit(1)
 
@@ -303,10 +317,20 @@ def main():
             sys.exit(1)
 
         logging.debug(f"SYSTEM PROMPT:\n{system_prompt_content}")
-        conversation_history = [{"role": "system", "content": system_prompt_content}]
+
+        context = AppContext(
+            model_name=args.model,
+            ollama_base_url=args.ollama,
+            gateway_host=GATEWAY_HOST,
+            gateway_port=GATEWAY_PORT,
+            ui=ui,
+            prompt_manager=prompt_manager,
+            conversation_history=[{"role": "system", "content": system_prompt_content}],
+            all_tools_metadata=all_tools_metadata
+        )
 
         ui.display_splash_screen()
-        run_conversation_loop(args.model, conversation_history, all_tools_metadata, ui, prompt_manager)
+        run_conversation_loop(context)
 
     except Exception as e:
         logging.critical(f"A critical error occurred in the main orchestrator: {e}", exc_info=args.debug)
