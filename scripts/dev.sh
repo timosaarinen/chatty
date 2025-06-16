@@ -2,29 +2,27 @@
 set -euo pipefail
 
 IMAGE_NAME="chatty"
-HOST_PORT=8000
-CONTAINER_PORT=8000
+CONTAINER_NAME="chatty-dev"
 WORKDIR="$(pwd)"
 CONTAINER_WORKDIR="/home/developer/chatty"
 
-if [[ $# -lt 1 ]]; then
-  echo "❌  Usage: $0 <model-name>"
-  exit 1
+if docker ps --filter "name=^/${CONTAINER_NAME}$" --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+  echo "✅  Dev container '${CONTAINER_NAME}' is already running."
+  echo "    To get a shell, run: scripts/exec.sh"
+  exit 0
 fi
-MODEL="$1"
-shift
 
-OLLAMA_URL="http://host.docker.internal:11434"
-
-echo "🚀  Starting dev container with model=${MODEL}…"
+echo "🚀  Starting dev container '${CONTAINER_NAME}'..."
 docker run -d --rm \
-  -p ${HOST_PORT}:${CONTAINER_PORT} \
+  --add-host=host.docker.internal:host-gateway \
   -v "${WORKDIR}:${CONTAINER_WORKDIR}:rw" \
-  --name chatty-dev \
-  "${IMAGE_NAME}" \
-    --model "${MODEL}" \
-    --ollama "${OLLAMA_URL}" \
-    --host "0.0.0.0" --port "8000" --reload
+  --name "${CONTAINER_NAME}" \
+  --entrypoint=tail \
+  "${IMAGE_NAME}" -f /dev/null
 
-echo "✅  Dev container started. Access it at http://localhost:${HOST_PORT}"
-echo "🔍  To attach a shell: scripts/exec.sh"
+echo "✅  Dev container started."
+echo "    - Your local directory is mounted at ${CONTAINER_WORKDIR}"
+echo
+echo "👉 To get a shell inside the container, run: scripts/exec.sh"
+echo "   Inside the shell, you can run the agent, for example:"
+echo "   uv run chatty.py --model <your-model> --ollama http://host.docker.internal:11434"

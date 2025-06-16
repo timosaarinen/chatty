@@ -29,10 +29,6 @@ WORKDIR /home/$UNAME/chatty
 # 4. Copy the entire project
 COPY --chown=$UNAME:$UNAME . .
 
-# 5. Expose app port
-EXPOSE 8000
-
-# 6. Run chatty
+# 5. Run chatty
 ENTRYPOINT ["uv", "run", "chatty.py"]
-CMD ["--ollama", "http://host.docker.internal:11434", \
-     "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["--ollama", "http://host.docker.internal:11434"]

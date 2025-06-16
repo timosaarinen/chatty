@@ -1,16 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-IMAGE_NAME="chatty"
-HOST_PORT=8000
-CONTAINER_PORT=8000
+if [[ $# -lt 1 ]]; then
+  echo "❌  Usage: $0 <model-name> [additional-chatty-args...]"
+  echo "   Example: $0 codellama:latest"
+  echo "   Example: $0 qwen2.5-coder:7b --debug"
+  exit 1
+fi
 
-echo "▶️  Running ${IMAGE_NAME}.."
+IMAGE_NAME="chatty"
+MODEL="$1"
+shift
+
+echo "▶️  Running ${IMAGE_NAME} with model ${MODEL}..."
 
 docker run --rm \
-  -p 8000:8000 \
+  --add-host=host.docker.internal:host-gateway \
   -it \
   -v "$(pwd)":/home/developer/chatty:rw \
-  chatty \
-    --model qwen2.5-coder:7b \
-    --ollama http://host.docker.internal:11434
+  "${IMAGE_NAME}" \
+    --model "${MODEL}" \
+    --ollama http://host.docker.internal:11434 \
+    "$@"

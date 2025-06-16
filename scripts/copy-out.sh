@@ -9,12 +9,12 @@ fi
 
 CONTAINER_PATH="$1"
 HOST_DEST="${2:-.}"
+CONTAINER_NAME="chatty-dev"
 
-IMAGE_NAME="chatty"
-CONTAINER_ID=$(docker ps -q --filter "ancestor=${IMAGE_NAME}")
+CONTAINER_ID=$(docker ps -q --filter "name=^/${CONTAINER_NAME}$")
 
 if [[ -z "$CONTAINER_ID" ]]; then
-  echo "⚠️  No running container for image ${IMAGE_NAME}"
+  echo "⚠️  No running container named '${CONTAINER_NAME}'. Did you run 'scripts/dev.sh'?"
   exit 1
 fi
 
