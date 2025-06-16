@@ -136,6 +136,13 @@ def run_conversation_loop(model_name: str, conversation_history: list, all_tools
             proxy_code = generate_tools_file_content(all_tools_metadata, GATEWAY_HOST, GATEWAY_PORT)
             ui.display_proxy_code(proxy_code)
             continue
+        elif user_input.lower() == "/clear":
+            # Re-initialize history, preserving the system prompt.
+            system_prompt = conversation_history[0]
+            conversation_history.clear()
+            conversation_history.append(system_prompt)
+            ui.display_info("Conversation history has been cleared.")
+            continue
 
         conversation_history.append({"role": "user", "content": user_input})
 
