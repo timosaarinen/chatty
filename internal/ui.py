@@ -7,10 +7,13 @@ from typing import List, Dict, Any, Optional
 from rich.console import Console
 from rich.panel import Panel
 from rich.syntax import Syntax
-from rich.prompt import Confirm
+from rich.prompt import Prompt
 from rich.table import Table
 from rich.text import Text
 from rich.style import Style
+
+from .context import AppContext
+
 
 class TerminalUI:
     """Handles all terminal user interface rendering using the `rich` library."""
@@ -25,7 +28,7 @@ class TerminalUI:
             "separator": Style(color="blue", dim=True),
         }
 
-    def display_splash_screen(self):
+    def display_splash_screen(self, auto_accept_enabled: bool = False):
         """Displays an ASCII art logo and welcome message."""
         logo = textwrap.dedent("""
              ██████╗██╗  ██╗ █████╗ ████████╗████████╗██╗   ██╗
@@ -43,6 +46,8 @@ class TerminalUI:
         )
         self.console.print(panel)
         self.console.print("Type '/help' for a list of commands. Type 'exit' or 'quit' to end.", justify="center")
+        if auto_accept_enabled:
+            self.console.print("[yellow bold]⚠️ Auto-accepting all tool code executions.[/yellow bold]", justify="center")
         self.console.print()
 
     def display_help(self):
@@ -116,8 +121,11 @@ class TerminalUI:
         """Prints a newline to conclude the assistant's response."""
         self.console.print()
 
-    def confirm_tool_execution(self, code: str) -> bool:
-        """Displays proposed tool code and asks for user confirmation."""
+    def confirm_tool_execution(self, code: str, context: AppContext) -> bool:
+        """
+        Displays proposed tool code and asks for user confirmation.
+        Handles auto-acceptance if enabled via context.
+        """
         self.console.print()
         syntax = Syntax(code, "python", theme="monokai", line_numbers=True, word_wrap=True)
         panel = Panel(
@@ -127,7 +135,28 @@ class TerminalUI:
             expand=False
         )
         self.console.print(panel)
-        return Confirm.ask("Execute this Python code?", console=self.console, default=True)
+
+        if context.auto_accept_code:
+            self.console.print("Auto-accepting tool execution...", style="dim")
+            return True
+
+        while True:
+            response = Prompt.ask(
+                "Execute this Python code? ([bold]y[/bold]es/[bold]n[/bold]o/[bold]a[/bold]lways)",
+                choices=["y", "n", "a"],
+                default="y",
+                console=self.console,
+                show_choices=False # We have custom prompt text
+            ).lower()
+            
+            if response == "y":
+                return True
+            if response == "n":
+                return False
+            if response == "a":
+                context.auto_accept_code = True
+                self.console.print("[dim]Auto-accepting all future tool executions for this session.[/dim]")
+                return True
 
     def display_tool_output(self, execution_result: Dict[str, Optional[str]]) -> str:
         """Displays the output of a tool execution in formatted panels."""

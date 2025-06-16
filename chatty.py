@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from rich.console import Console
 from rich.logging import RichHandler
 
+from internal.context import AppContext
 from internal.mcp_manager import MCPManager
 from internal.internal_tools import INTERNAL_TOOLS_METADATA, INTERNAL_TOOL_IMPLEMENTATIONS
 from internal.agent_prompt import TOOL_CODE_TAG_START, TOOL_CODE_TAG_END
@@ -31,21 +32,6 @@ from internal.tool_scaffolding import (
     TOOLS_GENERATED_FILENAME,
 )
 from internal.ui import TerminalUI
-
-# --- Application Context ---
-@dataclass
-class AppContext:
-    """A container for shared application state, configuration, and services."""
-    model_name: str
-    ollama_base_url: str
-    gateway_host: str
-    gateway_port: int
-    ui: TerminalUI
-    prompt_manager: PromptManager
-    conversation_history: List[Dict[str, Any]]
-    all_tools_metadata: List[Dict[str, Any]]
-    mcp_manager: MCPManager
-    mcp_config_path: str
 
 # --- Configuration: Constants ---
 GATEWAY_HOST = "localhost"
@@ -251,18 +237,37 @@ def run_conversation_loop(context: AppContext):
             llm_response_for_history = f"{response_text_part}{TOOL_CODE_TAG_START}\n{llm_history_code}\n{TOOL_CODE_TAG_END}"
             context.conversation_history.append({"role": "assistant", "content": llm_response_for_history})
 
-            if context.ui.confirm_tool_execution(uv_code):
+            # --- Loop prevention ---
+            if uv_code == context.last_tool_code:
+                context.consecutive_tool_calls += 1
+            else:
+                context.consecutive_tool_calls = 1
+                context.last_tool_code = uv_code
+
+            if context.consecutive_tool_calls > context.tool_interaction_limit:
+                context.ui.display_error(f"Tool loop detected after {context.tool_interaction_limit} identical calls. Aborting this turn.")
+                feedback_msg = "You appear to be in a loop, repeatedly calling the same tool with the same arguments. Stop and inform the user that you are stuck and cannot proceed with the current plan."
+                context.conversation_history.append({"role": "user", "content": feedback_msg})
+                final_response, _ = prompt_llm_stream(context, context.conversation_history)
+                context.conversation_history.append({"role": "assistant", "content": final_response})
+                break
+            
+            # --- Tool execution ---
+            if context.ui.confirm_tool_execution(uv_code, context):
                 execution_result = execute_python_tool(uv_code, context)
                 tool_output = context.ui.display_tool_output(execution_result)
-                feedback_msg = ""
 
+                # --- Structured feedback for the LLM ---
+                feedback = {"status": "success" if execution_result.get("error") is None else "error", "output": tool_output}
+                
                 if execution_result.get("stderr") and "ModuleNotFoundError" in execution_result["stderr"]:
                     match = re.search(r"No module named '(\S+)'", execution_result["stderr"])
                     module_name = match.group(1).strip("'\"") if match else "a required module"
-                    feedback_msg = f"Your code failed with a `ModuleNotFoundError` for '{module_name}'. You MUST add the correct package name to the `# dependencies` comment and provide the full, corrected Python code block now."
+                    instruction = f"Your code failed with a `ModuleNotFoundError` for '{module_name}'. You MUST add the correct package name to the `# dependencies` comment and provide the full, corrected Python code block now."
                 else:
-                    feedback_msg = f"Your code was executed. The user's original request was: '{user_input}'.\n\n--- TOOL OUTPUT ---\n{tool_output}\n--- END TOOL OUTPUT ---\n\nBased on this output, provide your final answer that directly addresses the original request. If the tool output suggests another step, only perform it if essential for answering the original request."
-                
+                    instruction = f"Analyze the tool output in the context of the original user request: '{user_input}'. If the task is complete, provide the final answer to the user. If the task requires another step, generate the necessary tool code. Do not explain the tool output to the user, just use it to progress the task."
+
+                feedback_msg = f"TOOL_EXECUTION_RESULT:\n```json\n{json.dumps(feedback, indent=2)}\n```\n\nINSTRUCTION: {instruction}"
                 logging.debug(f"FEEDBACK TO LLM:\n{feedback_msg}")
                 context.conversation_history.append({"role": "user", "content": feedback_msg})
             else:
@@ -285,6 +290,7 @@ def main():
     parser.add_argument("--model", type=str, help="Ollama model to use (e.g., 'llama3:latest').\nThis argument is required.")
     parser.add_argument("--ollama", type=str, default="http://localhost:11434", help="Base URL for the Ollama API server.\nDefault: http://localhost:11434")
     parser.add_argument("--mcp", type=str, default="mcp-config/demo-and-fetch.json", help="Path to the MCP configuration file.")
+    parser.add_argument("--auto-accept-code", action="store_true", help="Automatically execute all generated tool code without confirmation.")
     parser.add_argument("--verbose", action="store_true", help="Enable INFO level logging.")
     parser.add_argument("--debug", action="store_true", help="Enable DEBUG level logging (overrides --verbose).")
     args = parser.parse_args()
@@ -363,10 +369,11 @@ def main():
             conversation_history=[{"role": "system", "content": system_prompt_content}],
             all_tools_metadata=all_tools_metadata,
             mcp_manager=mcp_manager,
-            mcp_config_path=args.mcp
+            mcp_config_path=args.mcp,
+            auto_accept_code=args.auto_accept_code
         )
 
-        ui.display_splash_screen()
+        ui.display_splash_screen(context.auto_accept_code)
         run_conversation_loop(context)
 
     except Exception as e:
