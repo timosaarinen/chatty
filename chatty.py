@@ -126,6 +126,9 @@ def run_conversation_loop(model_name: str, conversation_history: list, all_tools
 
         if user_input.lower() in ["exit", "quit"]:
             break
+        elif user_input.lower() == "/help":
+            ui.display_help()
+            continue
         elif user_input.lower() == "/history":
             ui.display_history(conversation_history)
             continue
