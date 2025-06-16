@@ -90,7 +90,7 @@ def generate_tools_interface_for_prompt(tools_metadata: list) -> str:
     lines = []
     for tool in tools_metadata:
         py_tool_name = tool['name'].replace('/', '_').replace('-', '_')
-        
+
         # Handle multi-line descriptions
         description = tool.get("description", "No description provided.")
         description_lines = description.strip().split('\n')
@@ -106,8 +106,16 @@ def generate_tools_interface_for_prompt(tools_metadata: list) -> str:
             param_parts.append(f"{param_name}: {param_type}")
         method_sig = ", ".join(param_parts)
 
+        # Build method definition with optional return type
+        def_line = f"def {py_tool_name}({method_sig})"
+        output_schema = tool.get('outputSchema')
+        if output_schema and 'type' in output_schema:
+            return_type = _map_json_type_to_python_type(output_schema['type'])
+            def_line += f" -> {return_type}"
+        def_line += ": ..."
+
         lines.append(f'    @staticmethod')
-        lines.append(f'    def {py_tool_name}({method_sig}): ...')
+        lines.append(f'    {def_line}')
         lines.append('')
-    
+
     return "class Tools:\n" + "\n".join(lines).strip()
