@@ -270,16 +270,16 @@ def main():
         ui.console.print("\nUsage: [bold]uv run chatty.py --model <model_name>[/bold]")
         sys.exit(1)
 
-    mcp_server_configs = {}
+    mcp_config = {}
     try:
         with open(args.mcp, 'r') as f:
-            mcp_server_configs = json.load(f).get("mcpServers", {})
+            mcp_config = json.load(f)
     except FileNotFoundError:
         ui.display_warning(f"MCP config '{args.mcp}' not found. No external MCP servers will be started.")
     except json.JSONDecodeError as e:
         ui.display_error(f"Could not parse '{args.mcp}': {e}. Continuing without external MCP servers.")
 
-    mcp_manager = MCPManager(mcp_server_configs)
+    mcp_manager = MCPManager(mcp_config)
     http_server = None
     try:
         with ui.console.status("[bold green]Starting MCP servers...", spinner="dots"):

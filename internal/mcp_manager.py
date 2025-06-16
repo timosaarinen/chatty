@@ -92,7 +92,9 @@ class _MCPServerConnection:
         return None
 
 class MCPManager:
-    def __init__(self, server_configs: dict):
+    def __init__(self, mcp_config: dict):
+        server_configs = mcp_config.get("mcpServers", {})
+        self.tool_patches = mcp_config.get("tool_patches", {})
         self.servers = {name: _MCPServerConnection(name, config) for name, config in server_configs.items()}
         self._tool_to_server_map = {}
 
@@ -115,6 +117,14 @@ class MCPManager:
         if server.capabilities.get("tools"):
             logging.info(f"[{server.name}] Fetching tools...")
             server.tools = self._fetch_paginated_list(server, "tools/list", "tools")
+
+            for i, tool in enumerate(server.tools):
+                tool_name = tool.get('name')
+                if tool_name in self.tool_patches:
+                    logging.info(f"[{server.name}] Patching metadata for tool '{tool_name}'")
+                    # Use dict.update to merge patch, overwriting existing keys
+                    server.tools[i].update(self.tool_patches[tool_name])
+
             for tool in server.tools:
                 self._tool_to_server_map[tool['name']] = server.name
 

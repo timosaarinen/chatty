@@ -1,10 +1,17 @@
 {
   "mcpServers": {
-    "server-fetch": { 
+    "server-fetch": {
       "run": "uvx mcp-server-fetch"
     },
     "demo-mcp-server": {
       "run": "uv run demo-mcp-server/server.py"
+    }
+  },
+  "tool_patches": {
+    "fetch": {
+      "outputSchema": {
+        "type": "string"
+      }
     }
   }
 }

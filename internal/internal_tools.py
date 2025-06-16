@@ -34,6 +34,9 @@ INTERNAL_TOOLS_METADATA = [
                 "city": {"type": "string", "description": "The city to get the weather for."}
             },
             "required": ["city"]
+        },
+        "outputSchema": {
+            "type": "string"
         }
     },
     {
@@ -46,6 +49,9 @@ INTERNAL_TOOLS_METADATA = [
                 "b": {"type": "number", "description": "The second number."}
             },
             "required": ["a", "b"]
+        },
+        "outputSchema": {
+            "type": "integer"
         }
     }
 ]
