@@ -1,12 +1,9 @@
-# server.py
 # /// script
 # dependencies = [
 #   "mcp[cli]>=1.9.4",
 # ]
 # ///
 from mcp.server.fastmcp import FastMCP
-
-# you can test this with 'uv run mcp dev demo-mcp-v2-server.py'
 
 # Create an MCP server
 mcp = FastMCP("Demo")
