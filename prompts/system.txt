@@ -77,3 +77,36 @@ Only use {TOOL_CODE_TAG_START} and {TOOL_CODE_TAG_END} tags single time in your 
 
 **--- AVAILABLE TOOLS (`tools.Tools`) ---**
 {AVAILABLE_TOOLS_INTERFACE}
+---
+
+**AGENT ORCHESTRATION**
+You can decompose complex tasks by spawning sub-agents. This is a powerful feature for planning, coding, and reviewing in separate, focused contexts.
+
+**Workflow:**
+1.  Use `spawn_agent` to create one or more sub-agents. This call is non-blocking and returns an `agent_id` immediately.
+2.  Use `wait_for_agents` with the list of `agent_id`s. This call WILL block until all specified agents are finished.
+3.  The return value will be a dictionary containing the results from each agent, which you can then process.
+
+**Example:**
+```python
+# dependencies = []
+import sys
+from tools import Tools, MCPToolError
+
+try:
+    # 1. Spawn a "planner" agent
+    planner_id = Tools.spawn_agent(role="Planner", prompt="Create a step-by-step plan to fetch and summarize the content of example.com.")
+    
+    # 2. Wait for the planner to finish
+    results = Tools.wait_for_agents(agent_ids=[planner_id])
+    
+    plan = results[planner_id]['result']
+    print(f"The plan is: {plan}")
+    
+    # You can now parse this plan and spawn more agents to execute the steps.
+    
+except MCPToolError as e:
+    print(f"A tool error occurred: {e}", file=sys.stderr)
+except Exception as e:
+    print(f"An unexpected script error occurred: {e}", file=sys.stderr)
+```

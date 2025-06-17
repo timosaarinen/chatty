@@ -25,6 +25,8 @@ from internal.internal_tools import INTERNAL_TOOLS_METADATA, INTERNAL_TOOL_IMPLE
 from internal.agent_prompt import TOOL_CODE_TAG_START, TOOL_CODE_TAG_END
 from internal.prompt_manager import PromptManager
 from internal.agent_gateway import start_gateway_server
+from internal.agent_manager import AgentManager
+from internal.agent_tools import AgentTools
 from internal.code_processor import process_tool_code
 from internal.tool_scaffolding import (
     generate_tools_file_content,
@@ -95,6 +97,20 @@ def prompt_llm_stream(context: AppContext, messages_history: list):
     finally:
         context.ui.display_assistant_response_end()
     return full_response_content, False
+
+def call_llm_non_stream(context: AppContext, messages_history: list) -> str:
+    """Makes a non-streaming call to the LLM and returns the full response content."""
+    url = f"{context.ollama_base_url}/api/chat"
+    payload = {"model": context.model_name, "messages": messages_history, "stream": False, "options": {"temperature": 0.0}}
+    try:
+        response = requests.post(url, json=payload, timeout=300)
+        response.raise_for_status()
+        full_response = response.json()
+        content = full_response.get('message', {}).get('content', '')
+        return content
+    except requests.RequestException as e:
+        logging.error(f"Sub-agent LLM call failed: {e}")
+        return f"Error: Could not contact LLM. {e}"
 
 def list_ollama_models(ui: TerminalUI, ollama_base_url: str):
     """Fetches and displays available Ollama models."""
@@ -186,8 +202,11 @@ def run_conversation_loop(context: AppContext):
                     with context.ui.console.status("[bold green]Restarting MCP servers...", spinner="dots"):
                         context.mcp_manager.reload(new_mcp_config)
                     context.ui.console.print()
+
+                    # Re-aggregate all tools after MCP reload
+                    agent_tools = AgentTools(context.agent_manager, context.conversation_history[0]["content"])
+                    context.all_tools_metadata = INTERNAL_TOOLS_METADATA + context.mcp_manager.get_all_tools_metadata() + agent_tools.get_metadata()
                     
-                    context.all_tools_metadata = INTERNAL_TOOLS_METADATA + context.mcp_manager.get_all_tools_metadata()
                     context.ui.display_info("MCP servers reloaded.")
                     mcp_reloaded = True
                 except FileNotFoundError:
@@ -255,21 +274,53 @@ def run_conversation_loop(context: AppContext):
             # --- Tool execution ---
             if context.ui.confirm_tool_execution(uv_code, context):
                 execution_result = execute_python_tool(uv_code, context)
-                tool_output = context.ui.display_tool_output(execution_result)
 
-                # --- Structured feedback for the LLM ---
-                feedback = {"status": "success" if execution_result.get("error") is None else "error", "output": tool_output}
+                # --- Check for 'wait' directive ---
+                wait_directive = None
+                try:
+                    stdout_json = json.loads(execution_result.get('stdout', '{}').strip())
+                    if isinstance(stdout_json, dict) and stdout_json.get('_directive') == 'wait':
+                        wait_directive = stdout_json
+                except (json.JSONDecodeError, TypeError):
+                    pass # Not a JSON directive.
                 
-                if execution_result.get("stderr") and "ModuleNotFoundError" in execution_result["stderr"]:
-                    match = re.search(r"No module named '(\S+)'", execution_result["stderr"])
-                    module_name = match.group(1).strip("'\"") if match else "a required module"
-                    instruction = f"Your code failed with a `ModuleNotFoundError` for '{module_name}'. You MUST add the correct package name to the `# dependencies` comment and provide the full, corrected Python code block now."
-                else:
-                    instruction = f"Analyze the tool output in the context of the original user request: '{user_input}'. If the task is complete, provide the final answer to the user. If the task requires another step, generate the necessary tool code. Do not explain the tool output to the user, just use it to progress the task."
+                if wait_directive:
+                    context.ui.display_info("Wait directive received. Running sub-agents...")
+                    wait_ids = set(wait_directive.get('agent_ids', []))
+                    
+                    task_queue = context.agent_manager.get_task_queue()
+                    while task_queue:
+                        agent_to_run = task_queue.popleft()
+                        context.ui.display_agent_activity(agent_to_run.id, agent_to_run.role, "running")
+                        context.agent_manager.run_agent_task(agent_to_run)
+                        context.ui.display_agent_activity(agent_to_run.id, agent_to_run.role, f"finished with status '{agent_to_run.status}'")
 
-                feedback_msg = f"TOOL_EXECUTION_RESULT:\n```json\n{json.dumps(feedback, indent=2)}\n```\n\nINSTRUCTION: {instruction}"
-                logging.debug(f"FEEDBACK TO LLM:\n{feedback_msg}")
-                context.conversation_history.append({"role": "user", "content": feedback_msg})
+                    results = {}
+                    for agent_id in wait_ids:
+                        agent = context.agent_manager.get_agent(agent_id)
+                        if agent:
+                            results[agent_id] = {"status": agent.status, "result": agent.result}
+                        else:
+                            results[agent_id] = {"status": "not_found", "result": None}
+                    
+                    feedback_msg = f"TOOL_EXECUTION_RESULT:\n```json\n{json.dumps(results, indent=2)}\n```\n\nINSTRUCTION: The sub-agents you were waiting for have completed. Analyze their results and continue the main task. If they failed, decide whether to retry, adjust the plan, or report failure to the user."
+                    logging.debug(f"FEEDBACK TO LLM:\n{feedback_msg}")
+                    context.conversation_history.append({"role": "user", "content": feedback_msg})
+                else:
+                    # --- Handle normal tool output ---
+                    tool_output = context.ui.display_tool_output(execution_result)
+                    feedback = {"status": "success" if execution_result.get("error") is None else "error", "output": tool_output}
+                    
+                    if execution_result.get("stderr") and "ModuleNotFoundError" in execution_result["stderr"]:
+                        match = re.search(r"No module named '(\S+)'", execution_result["stderr"])
+                        module_name = match.group(1).strip("'\"") if match else "a required module"
+                        instruction = f"Your code failed with a `ModuleNotFoundError` for '{module_name}'. You MUST add the correct package name to the `# dependencies` comment and provide the full, corrected Python code block now."
+                    else:
+                        instruction = f"Analyze the tool output in the context of the original user request: '{user_input}'. If the task is complete, provide the final answer to the user. If the task requires another step, generate the necessary tool code. Do not explain the tool output to the user, just use it to progress the task."
+
+                    feedback_msg = f"TOOL_EXECUTION_RESULT:\n```json\n{json.dumps(feedback, indent=2)}\n```\n\nINSTRUCTION: {instruction}"
+                    logging.debug(f"FEEDBACK TO LLM:\n{feedback_msg}")
+                    context.conversation_history.append({"role": "user", "content": feedback_msg})
             else:
                 logging.info("Tool execution declined by user.")
                 decline_msg = "The user declined to run the code. Acknowledge this and respond to the original request without using tools."
@@ -343,15 +394,36 @@ def main():
         # This explicit print ensures the cursor moves to a new line, preventing
         # the splash screen from overwriting the final status or log line.
         ui.console.print()
+
+        # This context is temporary, to pass to the non-stream LLM caller
+        context_for_agents = AppContext(
+            model_name=args.model,
+            ollama_base_url=args.ollama,
+            ui=ui,
+            gateway_host=None, gateway_port=None, mcp_config_path=None, prompt_manager=None, conversation_history=None, all_tools_metadata=None, mcp_manager=None, agent_manager=None
+        )
+        agent_manager = AgentManager(
+            llm_caller=lambda history: call_llm_non_stream(context_for_agents, history)
+        )
+
+        # The system prompt is needed by AgentTools to pass to sub-agents.
+        # This creates a slight chicken-and-egg, so we generate a temporary one first.
+        temp_system_prompt = _generate_system_prompt(prompt_manager, INTERNAL_TOOLS_METADATA + mcp_manager.get_all_tools_metadata())
+        agent_tools = AgentTools(agent_manager, temp_system_prompt)
+        agent_tools_metadata = agent_tools.get_metadata()
+        agent_tools_impls = agent_tools.get_implementations()
+
+        all_tools_metadata = INTERNAL_TOOLS_METADATA + mcp_manager.get_all_tools_metadata() + agent_tools_metadata
+        all_tool_impls = {**INTERNAL_TOOL_IMPLEMENTATIONS, **agent_tools_impls}
         
-        all_tools_metadata = INTERNAL_TOOLS_METADATA + mcp_manager.get_all_tools_metadata()
         if not all_tools_metadata:
             ui.display_warning("No tools were loaded (internal or MCP). The agent will have limited capabilities.")
 
-        http_server, _ = start_gateway_server(mcp_manager, INTERNAL_TOOL_IMPLEMENTATIONS, GATEWAY_HOST, GATEWAY_PORT)
+        http_server, _ = start_gateway_server(mcp_manager, all_tool_impls, GATEWAY_HOST, GATEWAY_PORT)
         if not http_server:
             raise RuntimeError("Failed to start the tool gateway, cannot continue.")
 
+        # Now generate the final, complete system prompt
         system_prompt_content = _generate_system_prompt(prompt_manager, all_tools_metadata)
         if not system_prompt_content:
             ui.display_error("System prompt 'prompts/system.txt' not found or is empty. Please create it.")
@@ -369,9 +441,12 @@ def main():
             conversation_history=[{"role": "system", "content": system_prompt_content}],
             all_tools_metadata=all_tools_metadata,
             mcp_manager=mcp_manager,
+            agent_manager=agent_manager,
             mcp_config_path=args.mcp,
             auto_accept_code=args.auto_accept_code
         )
+        # Update the context used by the agent manager's LLM caller
+        context_for_agents.conversation_history = context.conversation_history
 
         ui.display_splash_screen(context.auto_accept_code)
         run_conversation_loop(context)
