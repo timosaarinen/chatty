@@ -50,6 +50,10 @@ class TerminalUI:
             self.console.print("[yellow bold]⚠️ Auto-accepting all tool code executions.[/yellow bold]", justify="center")
         self.console.print()
 
+    def display_agent_activity(self, agent_id: str, role: str, message: str):
+        """Displays the status of a sub-agent's activity."""
+        self.console.print(f"🔩 [Sub-Agent [bold cyan]{role}[/] ({agent_id})] {message}", style="dim")
+
     def display_help(self):
         """Displays the help message with available commands."""
         table = Table(show_header=False, box=None, expand=False)

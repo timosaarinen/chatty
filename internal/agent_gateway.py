@@ -19,7 +19,10 @@ class UnifiedRequestHandler(http.server.BaseHTTPRequestHandler):
                 tool_name = post_data.get('tool_name')
                 kwargs = post_data.get('arguments', {})
                 
-                if tool_name in self.internal_tool_impls:
+                if self.mcp_manager and tool_name in self.mcp_manager._tool_to_server_map:
+                    logging.info(f"Gateway dispatching to MCP tool: '{tool_name}'")
+                    normalized_result = self.mcp_manager.dispatch_tool_call(tool_name, kwargs)
+                elif tool_name in self.internal_tool_impls:
                     logging.info(f"Gateway dispatching to INTERNAL tool: '{tool_name}'")
                     raw_result = self.internal_tool_impls[tool_name](**kwargs)
                     # Normalize the raw result from internal tools to look like MCP results.
@@ -27,8 +30,6 @@ class UnifiedRequestHandler(http.server.BaseHTTPRequestHandler):
                         normalized_result = {"content": [{"type": "text", "text": str(raw_result)}], "isError": False}
                     else: # It's already in the right format
                         normalized_result = raw_result
-                elif self.mcp_manager and tool_name in self.mcp_manager._tool_to_server_map:
-                    normalized_result = self.mcp_manager.dispatch_tool_call(tool_name, kwargs)
                 else:
                     raise KeyError(f"Tool '{tool_name}' not found in any known implementation (internal or MCP).")
 

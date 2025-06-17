@@ -15,6 +15,7 @@ class AppContext:
     conversation_history: List[Dict[str, Any]]
     all_tools_metadata: List[Dict[str, Any]]
     mcp_manager: 'MCPManager'
+    agent_manager: 'AgentManager'
     auto_accept_code: bool = False
     consecutive_tool_calls: int = 0
     last_tool_code: str = ""
