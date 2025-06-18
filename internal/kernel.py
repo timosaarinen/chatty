@@ -4,7 +4,8 @@ import logging
 import re
 import requests
 import sys
-from typing import List, Dict, Any, Callable, TYPE_CHECKING, Tuple
+from typing import List, Dict, Any, Callable, TYPE_CHECKING, Tuple, Optional
+import litellm
 
 from .agent_manager import AgentContext, AgentManager, AgentStatus
 from .agent_prompt import TOOL_TAG_START, TOOL_TAG_END
@@ -25,9 +26,10 @@ class Kernel:
         system_prompt_generator: Callable,
         auto_accept_code: bool,
         ollama_base_url: str,
-        model_name: str,
+        model_name: Optional[str],
         temperature: float,
         streaming: bool,
+        litellm_model: Optional[str] = None,
     ):
         self.ui = ui
         self.agent_manager = agent_manager
@@ -39,6 +41,7 @@ class Kernel:
         self.model_name = model_name
         self.temperature = temperature
         self.streaming = streaming
+        self.litellm_model = litellm_model
         self._tool_call_id_counter = 0
 
     def run_turn(self, agent: AgentContext):
@@ -87,10 +90,83 @@ class Kernel:
 
     def _call_llm(self, agent: AgentContext) -> Tuple[str, bool]:
         """Calls the LLM, either streaming or non-streaming based on configuration."""
+        if self.litellm_model:
+            return self._call_litellm(agent.history, self.streaming and agent.is_main)
+
         if self.streaming and agent.is_main:
             return self._call_llm_stream(agent.history)
         return self._call_llm_non_stream(agent.history)
 
+    def _call_litellm(self, messages_history: list, stream: bool) -> Tuple[str, bool]:
+        """Calls an LLM using LiteLLM, streaming or non-streaming."""
+        full_response_content = ""
+
+        if stream:
+            # show the start-of-response UI only if no assistant output/tool output exists yet
+            if not any(
+                msg["role"] == "assistant" and self._extract_tool_content(msg["content"])
+                for msg in messages_history
+            ):
+                self.ui.display_assistant_response_start()
+
+            try:
+                # streaming call
+                stream_iter = litellm.completion(
+                    model=self.litellm_model,
+                    messages=messages_history,
+                    stream=True,
+                    temperature=self.temperature,
+                )
+                for chunk in stream_iter:
+                    # chunk.choices is a list; pick the first
+                    if chunk.choices:
+                        choice = chunk.choices[0]
+                        # delta may be missing or empty
+                        delta = getattr(choice, "delta", None)
+                        if delta and hasattr(delta, "content"):
+                            content = delta.content or ""
+                            if content:
+                                self.ui.display_assistant_stream_chunk(content)
+                                full_response_content += content
+
+            except KeyboardInterrupt:
+                # user interrupted the stream
+                self.ui.display_warning("\nLLM generation interrupted by user.")
+                return full_response_content, True
+
+            except Exception as e:
+                logging.critical(f"LiteLLM API error: {e}")
+                self.ui.display_error(f"LiteLLM API error: {e}")
+                sys.exit(1)
+
+            finally:
+                self.ui.display_assistant_response_end()
+
+            return full_response_content, False
+        
+        else:
+            # non-streaming call
+            try:
+                resp = litellm.completion(
+                    model=self.litellm_model,
+                    messages=messages_history,
+                    stream=False,
+                    temperature=self.temperature,
+                )
+                # pick the first choice
+                if resp.choices:
+                    choice = resp.choices[0]
+                    msg = getattr(choice, "message", None)
+                    content = msg.content if (msg and hasattr(msg, "content")) else ""
+                    return content or "", False
+
+                # no choices back
+                return "", False
+
+            except Exception as e:
+                logging.error(f"LiteLLM call failed: {e}")
+                return f"Error: Could not call model via LiteLLM. {e}", False
+        
     def _call_llm_stream(self, messages_history: list) -> Tuple[str, bool]:
         url = f"{self.ollama_base_url}/api/chat"
         payload = {"model": self.model_name, "messages": messages_history, "stream": True, "options": {"temperature": self.temperature}}

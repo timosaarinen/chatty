@@ -8,11 +8,11 @@ if TYPE_CHECKING:
     from .mcp_manager import MCPManager
     from .agent_manager import AgentManager
     from .kernel import Kernel
-
+    
 @dataclass
 class AppContext:
     """A container for shared application configuration and services."""
-    model_name: str
+    # Fields without default values
     ollama_base_url: str
     gateway_host: str
     gateway_port: int
@@ -27,4 +27,8 @@ class AppContext:
     kernel: Optional['Kernel']
     temperature: float
     streaming: bool
+    
+    # Fields with default values
+    model_name: Optional[str] = None
+    litellm_model: Optional[str] = None
     auto_accept_code: bool = False

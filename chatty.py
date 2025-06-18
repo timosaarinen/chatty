@@ -1,7 +1,7 @@
 # chatty.py
 # NOTE: do NOT remove the following comment block, it is used by the build system to determine dependencies:
 # /// script
-# dependencies = ["requests<3", "httpx<1", "rich<14"]
+# dependencies = ["requests<3", "httpx<1", "rich<14", "litellm<2"]
 # ///
 import requests
 import json
@@ -14,7 +14,7 @@ import shutil
 import textwrap
 import argparse
 import logging
-from typing import List, Dict, Any, Callable
+from typing import List, Dict, Any, Callable, Optional
 from dataclasses import dataclass
 
 from rich.console import Console
@@ -84,7 +84,10 @@ def list_ollama_models(ui: TerminalUI, ollama_base_url: str):
 # --- Main Application Loop ---
 def run_main_loop(context: AppContext):
     """The main REPL and orchestrator for the agent."""
-    logging.info(f"Using Ollama model: {context.model_name} with temperature {context.temperature}")
+    if context.litellm_model:
+        logging.info(f"Using LiteLLM model: {context.litellm_model} with temperature {context.temperature}")
+    else:
+        logging.info(f"Using Ollama model: {context.model_name} with temperature {context.temperature}")
     main_agent = context.agent_manager.get_main_agent()
 
     if not context.kernel or not main_agent:
@@ -180,11 +183,12 @@ def main():
         description="Chatty - A local code agent powered by Ollama and MCP.",
         formatter_class=argparse.RawTextHelpFormatter
     )
-    parser.add_argument("--model", type=str, help="Ollama model to use (e.g., 'llama3:latest').\nThis argument is required.")
+    parser.add_argument("--model", type=str, help="Ollama model to use (e.g., 'llama3:latest').\nRequired if --litellm-model is not set.")
     parser.add_argument("--ollama", type=str, default="http://localhost:11434", help="Base URL for the Ollama API server.\nDefault: http://localhost:11434")
     parser.add_argument("--mcp", type=str, default="mcp-config/demo-and-fetch.json", help="Path to the MCP configuration file.")
     parser.add_argument("--auto-accept-code", action="store_true", help="Automatically execute all generated tool code without confirmation.")
     parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE, help=f"Set the LLM temperature for creativity. Default: {DEFAULT_TEMPERATURE}")
+    parser.add_argument("--litellm-model", type=str, help="Use LiteLLM for inference via a specific model string (e.g., 'openai/gpt-4o', 'openrouter/claude-3-opus'). Overrides --model for inference.")
     parser.add_argument("--no-streaming", action="store_true", help="Disable streaming responses from the LLM.")
     parser.add_argument("--verbose", action="store_true", help="Enable INFO level logging.")
     parser.add_argument("--debug", action="store_true", help="Enable DEBUG level logging (overrides --verbose).")
@@ -199,13 +203,18 @@ def main():
     logging.basicConfig(level=log_level, format="%(levelname)s: %(message)s", datefmt="[%X]", handlers=[handler])
     ui = TerminalUI(console)
 
+    if args.litellm_model:
+        ui.display_info(f"LiteLLM model '{args.litellm_model}' is set and will be used for inference.")
+        ui.display_warning("Ensure any required API keys (e.g., OPENAI_API_KEY) are set as environment variables.")
+
     check_prerequisites(ui, args.ollama)
     prompt_manager = PromptManager(prompt_directory="prompts")
 
-    if not args.model:
-        ui.display_error("The --model argument is required.")
+    if not args.model and not args.litellm_model:
+        ui.display_error("Either --model (for Ollama) or --litellm-model must be provided.")
         list_ollama_models(ui, args.ollama)
         ui.console.print("\nUsage: [bold]uv run chatty.py --model <model_name>[/bold]")
+        ui.console.print("   or: [bold]uv run chatty.py --litellm-model <provider/model_name>[/bold]")
         sys.exit(1)
 
     mcp_config = {}
@@ -290,7 +299,8 @@ def main():
             ollama_base_url=args.ollama,
             model_name=args.model,
             temperature=args.temperature,
-            streaming=not args.no_streaming
+            streaming=not args.no_streaming,
+            litellm_model=args.litellm_model
         )
 
         app_context = AppContext(
@@ -309,7 +319,8 @@ def main():
             mcp_config_path=args.mcp,
             auto_accept_code=args.auto_accept_code,
             temperature=args.temperature,
-            streaming=not args.no_streaming
+            streaming=not args.no_streaming,
+            litellm_model=args.litellm_model
         )
 
         ui.display_splash_screen(app_context.auto_accept_code)
