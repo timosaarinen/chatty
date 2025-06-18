@@ -4,20 +4,26 @@ import json
 import logging
 import threading
 from socketserver import ThreadingMixIn
+from typing import Optional
+
 from .mcp_manager import MCPManager
 
 class UnifiedRequestHandler(http.server.BaseHTTPRequestHandler):
     """Handles incoming tool call requests from the sandboxed Python scripts."""
-    mcp_manager: MCPManager = None
+    mcp_manager: Optional[MCPManager] = None
     internal_tool_impls: dict = {}
     
     def do_POST(self):
+        tool_name: Optional[str] = None
         if self.path == '/mcp_tool_call':
             try:
                 content_length = int(self.headers['Content-Length'])
                 post_data = json.loads(self.rfile.read(content_length).decode('utf-8'))
                 tool_name = post_data.get('tool_name')
                 kwargs = post_data.get('arguments', {})
+
+                if not tool_name or not isinstance(tool_name, str):
+                    raise ValueError("Request body must include a valid 'tool_name' string.")
                 
                 if self.mcp_manager and tool_name in self.mcp_manager._tool_to_server_map:
                     logging.info(f"Gateway dispatching to MCP tool: '{tool_name}'")
@@ -35,9 +41,11 @@ class UnifiedRequestHandler(http.server.BaseHTTPRequestHandler):
 
                 self._send_response(200, {"status": "success", "result": normalized_result})
             except (TypeError, ValueError) as e:
-                self._send_response(400, {"status": "error", "type": "INVALID_TOOL_ARGUMENTS", "message": f"Invalid arguments for '{tool_name}': {e}"})
-            except KeyError as e: 
-                self._send_response(404, {"status": "error", "type": "TOOL_NOT_FOUND", "message": f"Tool '{tool_name}' not found."})
+                msg = f"Invalid arguments for tool '{tool_name}': {e}" if tool_name else f"Invalid arguments or malformed request: {e}"
+                self._send_response(400, {"status": "error", "type": "INVALID_TOOL_ARGUMENTS", "message": msg})
+            except KeyError as e:
+                msg = f"Tool '{tool_name}' not found." if tool_name else "Tool not found (name was not provided)."
+                self._send_response(404, {"status": "error", "type": "TOOL_NOT_FOUND", "message": msg})
             except Exception as e:
                 self._send_response(500, {"status": "error", "type": "TOOL_EXECUTION_ERROR", "message": str(e)})
         else:

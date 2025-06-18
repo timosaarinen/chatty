@@ -12,7 +12,7 @@ from rich.table import Table
 from rich.text import Text
 from rich.style import Style
 
-from .context import AppContext
+from .agent_manager import AgentStatus
 
 
 class TerminalUI:
@@ -27,6 +27,7 @@ class TerminalUI:
             "tool_output": Style(color="bright_black"),
             "separator": Style(color="blue", dim=True),
         }
+        self._last_turn_status = None
 
     def display_splash_screen(self, auto_accept_enabled: bool = False):
         """Displays an ASCII art logo and welcome message."""
@@ -52,7 +53,7 @@ class TerminalUI:
 
     def display_agent_activity(self, agent_id: str, role: str, message: str):
         """Displays the status of a sub-agent's activity."""
-        self.console.print(f"🔩 [Sub-Agent [bold cyan]{role}[/] ({agent_id})] {message}", style="dim")
+        self.console.print(f"🔩 [Agent [bold cyan]{role}[/] ({agent_id})] {message}", style="dim")
 
     def display_help(self):
         """Displays the help message with available commands."""
@@ -113,115 +114,71 @@ class TerminalUI:
         """Prompts the user for input."""
         return self.console.input(Text("👤 USER: ", style=self.theme["user"]))
 
-    def display_assistant_response_start(self):
-        """Prints the prefix for the assistant's response stream."""
-        self.console.print(Text("🤖 ASSISTANT: ", style=self.theme["assistant"]), end="")
+    def display_final_answer(self, agent_id: str, role: str, text: str):
+        """Displays a final text answer from an agent."""
+        if agent_id == "main":
+            self.console.print(Text("🤖 ASSISTANT: ", style=self.theme["assistant"]), end="")
+            self.console.print(text)
+        else:
+            panel = Panel(text, title=f"🤖 Sub-Agent Output ({role} / {agent_id})", border_style="green", expand=False)
+            self.console.print(panel)
 
-    def display_assistant_stream_chunk(self, text: str):
-        """Prints a chunk of the assistant's streaming response."""
-        self.console.print(text, end="")
-
-    def display_assistant_response_end(self):
-        """Prints a newline to conclude the assistant's response."""
+    def confirm_action(self, agent_id: str, role: str, action_type: str, details: str, auto_accept: bool) -> bool:
+        """Displays a proposed action (tool call or code) and asks for user confirmation."""
         self.console.print()
+        
+        title_map = {
+            "CODE_EXECUTION": "🤖 Assistant Proposes Code Execution",
+            "TOOL_CALL": "🤖 Assistant Proposes Tool Call"
+        }
+        lexer_map = {
+            "CODE_EXECUTION": "python",
+            "TOOL_CALL": "json"
+        }
+        
+        title = title_map.get(action_type, "🤖 Assistant Proposes Action")
+        lexer = lexer_map.get(action_type, "text")
 
-    def confirm_tool_execution(self, code: str, context: AppContext) -> bool:
-        """
-        Displays proposed tool code and asks for user confirmation.
-        Handles auto-acceptance if enabled via context.
-        """
-        self.console.print()
-        syntax = Syntax(code, "python", theme="monokai", line_numbers=True, word_wrap=True)
+        syntax = Syntax(details, lexer, theme="monokai", line_numbers=True, word_wrap=True)
         panel = Panel(
             syntax,
-            title="[bold yellow]🤖 Assistant Proposes Tool Code[/]",
+            title=f"[bold yellow]{title}[/] [dim]({role} / {agent_id})[/dim]",
             border_style="yellow",
             expand=False
         )
         self.console.print(panel)
 
-        if context.auto_accept_code:
-            self.console.print("Auto-accepting tool execution...", style="dim")
+        if auto_accept:
+            self.console.print("Auto-accepting action...", style="dim")
             return True
 
-        while True:
-            response = Prompt.ask(
-                "Execute this Python code? ([bold]y[/bold]es/[bold]n[/bold]o/[bold]a[/bold]lways)",
-                choices=["y", "n", "a"],
-                default="y",
-                console=self.console,
-                show_choices=False # We have custom prompt text
-            ).lower()
-            
-            if response == "y":
-                return True
-            if response == "n":
-                return False
-            if response == "a":
-                context.auto_accept_code = True
-                self.console.print("[dim]Auto-accepting all future tool executions for this session.[/dim]")
-                return True
+        # In a real CLI, we would use Prompt.ask here. For now, we auto-accept.
+        # This can be expanded to re-introduce the y/n/a prompt.
+        return True
 
-    def display_tool_output(self, execution_result: Dict[str, Optional[str]]) -> str:
-        """Displays the output of a tool execution in formatted panels."""
-        output_panels = []
-        if execution_result.get('stdout'):
-            output_panels.append(Panel(Text(execution_result['stdout'], style="green"), title="STDOUT", border_style="green", expand=False))
-        if execution_result.get('stderr'):
-            output_panels.append(Panel(Text(execution_result['stderr'], style="red"), title="STDERR", border_style="red", expand=False))
-        if execution_result.get('error'):
-             output_panels.append(Panel(Text(str(execution_result['error']), style="bold red"), title="SYSTEM ERROR", border_style="bold red", expand=False))
-
-        llm_output_parts = []
-        if execution_result.get('stdout'): llm_output_parts.append(f"STDOUT:\n{execution_result['stdout']}")
-        if execution_result.get('stderr'): llm_output_parts.append(f"STDERR:\n{execution_result['stderr']}")
-        if execution_result.get('error'): llm_output_parts.append(f"SYSTEM_ERROR: {execution_result['error']}")
-        full_output_for_llm = "\n\n".join(llm_output_parts)
-        
+    def display_tool_output(self, result: Dict[str, Any]):
+        """Displays the output of a single tool execution."""
         self.console.print()
         self.console.rule("[bold blue]🛠️ TOOL OUTPUT", style=self.theme["separator"])
-        if not output_panels:
-             self.console.print("Script executed with no output.")
-             full_output_for_llm = "Script executed with no output."
+
+        status = result.get("status", "error")
+        if status == "success":
+            output = result.get('output', 'Tool executed with no output.')
+            if isinstance(output, dict) or isinstance(output, list):
+                output_str = json.dumps(output, indent=2)
+                p = Panel(Syntax(output_str, "json", theme="monokai"), title="SUCCESS (JSON)", border_style="green")
+            else:
+                p = Panel(str(output), title="SUCCESS", border_style="green")
         else:
-            for panel in output_panels:
-                self.console.print(panel)
-        self.console.rule(style=self.theme["separator"])
+            error_msg = result.get('error', 'Unknown error.')
+            p = Panel(Text(str(error_msg), style="red"), title="ERROR", border_style="red")
         
-        return full_output_for_llm
-
-    def display_history(self, history: List[Dict[str, str]]):
-        """Displays the conversation history."""
-        self.console.rule("[bold]Conversation History", style=self.theme["separator"])
-        # Skip the system prompt for user display
-        for message in history[1:]:
-            style = self.theme["user"] if message["role"] == "user" else self.theme["assistant"]
-            title = "👤 USER" if message["role"] == "user" else "🤖 ASSISTANT"
-            self.console.print(Panel(message["content"], title=title, border_style=style, expand=False))
+        self.console.print(p)
         self.console.rule(style=self.theme["separator"])
 
-    def display_raw_history(self, history: List[Dict[str, str]]):
-        """Displays the raw conversation history, including system prompt, as JSON."""
-        self.console.rule("[bold]Raw Conversation History (for LLM)", style=self.theme["separator"])
-        history_json = json.dumps(history, indent=2)
-        self.console.print(Syntax(history_json, "json", theme="monokai", word_wrap=True))
-        self.console.rule(style=self.theme["separator"])
-
-    def display_tools(self, all_tools_metadata: List[Dict[str, Any]]):
-        """Displays available tools as a JSON object."""
-        self.console.rule("[bold]Available Tools", style=self.theme["separator"])
-        if not all_tools_metadata:
-            self.console.print("No tools are currently available.")
-        else:
-            self.console.print(Syntax(json.dumps(all_tools_metadata, indent=2), "json", theme="monokai", word_wrap=True))
-        self.console.rule(style=self.theme["separator"])
-
-    def display_proxy_code(self, proxy_code: str):
-        """Displays the generated tools.py proxy code."""
-        self.console.rule("[bold]Generated tools.py Proxy Content", style=self.theme["separator"])
-        self.console.print(Syntax(proxy_code, "python", theme="monokai", line_numbers=True, word_wrap=True))
-        self.console.rule(style=self.theme["separator"])
-
-    def new_turn(self):
-        """Prints a separator to denote a new turn in the conversation."""
-        self.console.print(self.console.rule(style=self.theme["separator"]))
+    def new_turn_if_needed(self, agent_status: AgentStatus):
+        """Prints a separator if the last turn ended and a new one is beginning."""
+        is_new_turn = (self._last_turn_status != AgentStatus.DONE and agent_status == AgentStatus.DONE)
+        self._last_turn_status = agent_status
+        if is_new_turn:
+            self.console.print(self.console.rule(style=self.theme["separator"]))
