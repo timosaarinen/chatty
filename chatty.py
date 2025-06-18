@@ -28,7 +28,7 @@ from internal.prompt_manager import PromptManager
 from internal.agent_gateway import start_gateway_server
 from internal.agent_manager import AgentManager, AgentStatus
 from internal.agent_tools import AgentTools
-from internal.tool_scaffolding import generate_tools_interface_for_prompt
+from internal.tool_scaffolding import generate_tools_interface_for_prompt, generate_tools_file_content
 from internal.ui import TerminalUI
 from internal.kernel import Kernel
 from internal.code_executor import execute_python_code
@@ -39,12 +39,12 @@ GATEWAY_PORT = 8989
 DEFAULT_TEMPERATURE = 0.7
 
 # --- Core Logic Helpers ---
-def _generate_system_prompt_generator(prompt_manager: PromptManager, all_tools_metadata: list) -> Callable[[], str | None]:
+def _generate_system_prompt_generator(prompt_manager: PromptManager, all_tools_metadata: list) -> Callable[[], str]:
     """Returns a function that generates the full system prompt content."""
-    def generator() -> str | None:
+    def generator() -> str:
         system_prompt_template = prompt_manager.get("system")
         if not system_prompt_template:
-            return None
+            raise RuntimeError("No system prompt configured!")
         
         tools_interface_for_prompt = generate_tools_interface_for_prompt(all_tools_metadata)
         
