@@ -1,5 +1,5 @@
 ```
-╭───────────────────────── Chatty - Local Code Agent ─────────────────────────╮
+╭───────────────────────── Chatty - Code Agent ------─────────────────────────╮
 │                                                                             │
 │              ██████╗██╗  ██╗ █████╗ ████████╗████████╗██╗   ██╗             │
 │             ██╔════╝██║  ██║██╔══██╗╚══██╔══╝╚══██╔══╝╚██╗ ██╔╝             │
@@ -11,7 +11,7 @@
 ╰────────── A Local-First, Code-Executing AI Agent Powered by Ollama ─────────╯
 ```
 
-`chatty` is a minimalist, local-first terminal AI assistant for developers. It runs code in your environment, connects to [Ollama](https://ollama.com/) models, and can access tools exposed via the Model Context Protocol (MCP).
+`chatty` is a minimalist, local-first terminal AI assistant for developers. It runs code in your environment, connects to local [Ollama](https://ollama.com/) or cloud models (via LiteLLM), and can access tools exposed via the Model Context Protocol (MCP).
 
 
 ## Features
