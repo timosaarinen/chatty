@@ -1,7 +1,7 @@
 # chatty.py
 # NOTE: do NOT remove the following comment block, it is used by the build system to determine dependencies:
 # /// script
-# dependencies = ["requests<3", "httpx<1", "rich<14", "litellm<2"]
+# dependencies = ["requests<3", "httpx<1", "rich<14", "litellm==1.72.4"]
 # ///
 import requests
 import json
@@ -205,7 +205,7 @@ def main():
 
     if args.litellm_model:
         ui.display_info(f"LiteLLM model '{args.litellm_model}' is set and will be used for inference.")
-        ui.display_warning("Ensure any required API keys (e.g., OPENAI_API_KEY) are set as environment variables.")
+        ui.display_info("Ensure any required API keys (e.g., OPENAI_API_KEY, OPENROUTER_API_KEY) are set as environment variables.")
 
     check_prerequisites(ui, args.ollama)
     prompt_manager = PromptManager(prompt_directory="prompts")
