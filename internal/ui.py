@@ -64,7 +64,7 @@ class TerminalUI:
         commands = {
             "/help": "Show this help message.",
             "/clear": "Clear the current conversation history.",
-            r"/reload \[prompts|mcp]": "Reload prompts, MCP servers, or both from disk.",
+            r"/reload \[prompts|mcp|all]": "Reload prompts, MCP servers, or all.",
             "/history": "Show the formatted conversation history.",
             "/history-raw": "Show the raw JSON conversation history for the LLM.",
             "/tools": "Show available tools as a JSON object.",
@@ -92,6 +92,51 @@ class TerminalUI:
     def display_error(self, message: str):
         self.console.print(f"[bold red]❌ ERROR:[/] {message}")
 
+    def display_history(self, history: List[Dict[str, str]]):
+        """Displays the conversation history in a readable format."""
+        self.console.rule("[bold blue]Conversation History")
+        for msg in history:
+            role = msg.get("role", "unknown")
+            content = msg.get("content", "")
+            if role == "system":
+                panel = Panel(
+                    Syntax(content, "markdown", theme="monokai", word_wrap=True),
+                    title="SYSTEM PROMPT (summarized)",
+                    border_style="dim blue",
+                    expand=False
+                )
+                self.console.print(panel)
+            elif role == "user":
+                self.console.print(Text(f"👤 USER: {content}", style=self.theme["user"]))
+            elif role == "assistant":
+                self.console.print(Text("🤖 ASSISTANT: ", style=self.theme["assistant"]), end="")
+                self.console.print(content)
+        self.console.rule(style="blue")
+    
+    def display_raw_history(self, history: List[Dict[str, str]]):
+        """Displays the raw JSON of the conversation history."""
+        self.console.print(Panel(
+            Syntax(json.dumps(history, indent=2), "json", theme="monokai", word_wrap=True),
+            title="[bold]Raw Conversation History[/]",
+            border_style="dim blue"
+        ))
+
+    def display_tools(self, tools_metadata: List[Dict[str, Any]]):
+        """Displays the available tools metadata as a JSON object."""
+        self.console.print(Panel(
+            Syntax(json.dumps(tools_metadata, indent=2), "json", theme="monokai", word_wrap=True),
+            title="[bold]Available Tools Metadata[/]",
+            border_style="dim blue"
+        ))
+
+    def display_proxy_code(self, proxy_code: str):
+        """Displays the generated tools.py proxy code."""
+        self.console.print(Panel(
+            Syntax(proxy_code, "python", theme="monokai", line_numbers=True, word_wrap=True),
+            title="[bold]Generated tools.py Proxy[/]",
+            border_style="dim blue"
+        ))
+
     def display_ollama_models(self, models: List[Dict[str, Any]]):
         """Displays available Ollama models in a formatted table."""
         if not models:
@@ -113,6 +158,18 @@ class TerminalUI:
     def prompt_user(self) -> str:
         """Prompts the user for input."""
         return self.console.input(Text("👤 USER: ", style=self.theme["user"]))
+
+    def display_assistant_response_start(self):
+        """Prints the assistant's response header, preparing for streaming."""
+        self.console.print(Text("🤖 ASSISTANT: ", style=self.theme["assistant"]), end="")
+
+    def display_assistant_stream_chunk(self, text: str):
+        """Prints a chunk of the assistant's streaming response."""
+        self.console.print(text, end="")
+
+    def display_assistant_response_end(self):
+        """Prints a newline to conclude the assistant's streaming response."""
+        self.console.print()
 
     def display_final_answer(self, agent_id: str, role: str, text: str):
         """Displays a final text answer from an agent."""

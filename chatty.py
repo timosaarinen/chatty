@@ -71,27 +71,6 @@ def check_prerequisites(ui: TerminalUI, ollama_base_url: str):
         ui.display_error(f"Ollama server not reachable at {ollama_base_url}. Is it running?")
         sys.exit(1)
 
-def get_llm_caller(context: AppContext) -> Callable[[List[Dict]], str]:
-    """Returns a function that makes a non-streaming call to the LLM."""
-    def llm_caller(messages_history: list) -> str:
-        url = f"{context.ollama_base_url}/api/chat"
-        payload = {
-            "model": context.model_name,
-            "messages": messages_history,
-            "stream": False,
-            "options": {"temperature": context.temperature},
-        }
-        try:
-            response = requests.post(url, json=payload, timeout=300)
-            response.raise_for_status()
-            full_response = response.json()
-            content = full_response.get('message', {}).get('content', '')
-            return content
-        except requests.RequestException as e:
-            logging.error(f"LLM call failed: {e}")
-            return f"Error: Could not contact LLM. {e}"
-    return llm_caller
-
 def list_ollama_models(ui: TerminalUI, ollama_base_url: str):
     """Fetches and displays available Ollama models."""
     try:
@@ -122,8 +101,57 @@ def run_main_loop(context: AppContext):
                 if user_input.lower() in ["exit", "quit"]:
                     break
                 
+                # --- Meta-command handling ---
                 if user_input.lower().startswith("/"):
-                    context.ui.display_error("Meta-commands are not yet implemented in this version.")
+                    command_parts = user_input.lower().split(maxsplit=1)
+                    command = command_parts[0]
+                    
+                    if command == "/help":
+                        context.ui.display_help()
+                    elif command == "/history":
+                        context.ui.display_history(main_agent.history)
+                    elif command == "/history-raw":
+                        context.ui.display_raw_history(main_agent.history)
+                    elif command == "/tools":
+                        context.ui.display_tools(context.all_tools_metadata)
+                    elif command == "/proxy":
+                        proxy_code = generate_tools_file_content(context.all_tools_metadata, context.gateway_host, context.gateway_port)
+                        context.ui.display_proxy_code(proxy_code)
+                    elif command == "/clear":
+                        system_prompt_message = main_agent.history[0]
+                        main_agent.history.clear()
+                        main_agent.history.append(system_prompt_message)
+                        context.ui.display_info("Conversation history has been cleared.")
+                    elif command == "/reload":
+                        target = command_parts[1] if len(command_parts) > 1 else "all"
+                        if target not in ["all", "prompts", "mcp"]:
+                            context.ui.display_error(f"Invalid reload target '{target}'. Use 'prompts', 'mcp', or 'all'.")
+                            continue
+                        
+                        if target in ["all", "prompts"]:
+                            context.ui.display_info("Reloading prompts from disk...")
+                            context.prompt_manager.load()
+                        
+                        if target in ["all", "mcp"]:
+                            context.ui.display_info(f"Reloading MCP configuration from '{context.mcp_config_path}'...")
+                            try:
+                                with open(context.mcp_config_path, 'r') as f:
+                                    new_mcp_config = json.load(f)
+                                with context.ui.console.status("[bold green]Restarting MCP servers...", spinner="dots"):
+                                    context.mcp_manager.reload(new_mcp_config)
+                                context.all_tools_metadata = INTERNAL_TOOLS_METADATA + context.mcp_manager.get_all_tools_metadata() + context.agent_tools_metadata + [context.execute_code_metadata]
+                                context.ui.display_info("MCP servers reloaded.")
+                            except FileNotFoundError:
+                                context.ui.display_error(f"MCP config file not found: '{context.mcp_config_path}'")
+                            except json.JSONDecodeError as e:
+                                context.ui.display_error(f"Error parsing MCP config: {e}")
+                        
+                        new_gen = _generate_system_prompt_generator(context.prompt_manager, context.all_tools_metadata)
+                        context.kernel.system_prompt_generator = new_gen
+                        main_agent.history[0]['content'] = new_gen()
+                        context.ui.display_info("System prompt has been updated.")
+                    else:
+                        context.ui.display_error(f"Unknown command: {command}. Type /help for a list of commands.")
                     continue
 
                 main_agent.history.append({"role": "user", "content": user_input})
@@ -134,11 +162,7 @@ def run_main_loop(context: AppContext):
             if not agent_to_run:
                 if main_agent.status == AgentStatus.WAITING:
                     context.ui.display_info("All sub-agents finished. Resuming main agent.")
-                    # This is where logic to collate sub-agent results would go.
-                    # For now, just mark the main agent as ready to continue.
                     main_agent.status = AgentStatus.READY
-                
-                # If there's still no agent to run, wait for the next loop iteration (and user input).
                 continue
 
             context.kernel.run_turn(agent_to_run)
@@ -160,7 +184,8 @@ def main():
     parser.add_argument("--ollama", type=str, default="http://localhost:11434", help="Base URL for the Ollama API server.\nDefault: http://localhost:11434")
     parser.add_argument("--mcp", type=str, default="mcp-config/demo-and-fetch.json", help="Path to the MCP configuration file.")
     parser.add_argument("--auto-accept-code", action="store_true", help="Automatically execute all generated tool code without confirmation.")
-    parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE, help=f"Set the LLM temperature. Default: {DEFAULT_TEMPERATURE}")
+    parser.add_argument("--temperature", type=float, default=DEFAULT_TEMPERATURE, help=f"Set the LLM temperature for creativity. Default: {DEFAULT_TEMPERATURE}")
+    parser.add_argument("--no-streaming", action="store_true", help="Disable streaming responses from the LLM.")
     parser.add_argument("--verbose", action="store_true", help="Enable INFO level logging.")
     parser.add_argument("--debug", action="store_true", help="Enable DEBUG level logging (overrides --verbose).")
     args = parser.parse_args()
@@ -255,6 +280,19 @@ def main():
         # The main agent starts with only the system prompt.
         agent_manager.create_agent("MainOrchestrator", "", system_prompt_content)
 
+        kernel = Kernel(
+            ui=ui,
+            agent_manager=agent_manager,
+            mcp_manager=mcp_manager,
+            all_tool_impls=all_tool_impls,
+            system_prompt_generator=system_prompt_generator,
+            auto_accept_code=args.auto_accept_code,
+            ollama_base_url=args.ollama,
+            model_name=args.model,
+            temperature=args.temperature,
+            streaming=not args.no_streaming
+        )
+
         app_context = AppContext(
             model_name=args.model,
             ollama_base_url=args.ollama,
@@ -263,24 +301,16 @@ def main():
             ui=ui,
             prompt_manager=prompt_manager,
             all_tools_metadata=all_tools_metadata,
+            agent_tools_metadata=agent_tools_metadata,
+            execute_code_metadata=execute_code_metadata,
             mcp_manager=mcp_manager,
             agent_manager=agent_manager,
+            kernel=kernel,
             mcp_config_path=args.mcp,
             auto_accept_code=args.auto_accept_code,
             temperature=args.temperature,
-            kernel=None # Will be set shortly
+            streaming=not args.no_streaming
         )
-
-        kernel = Kernel(
-            ui=ui,
-            agent_manager=agent_manager,
-            mcp_manager=mcp_manager,
-            all_tool_impls=all_tool_impls,
-            llm_caller=get_llm_caller(app_context),
-            system_prompt_generator=system_prompt_generator,
-            auto_accept_code=args.auto_accept_code
-        )
-        app_context.kernel = kernel
 
         ui.display_splash_screen(app_context.auto_accept_code)
         run_main_loop(app_context)

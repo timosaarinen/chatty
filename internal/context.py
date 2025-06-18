@@ -20,8 +20,11 @@ class AppContext:
     ui: 'TerminalUI'
     prompt_manager: 'PromptManager'
     all_tools_metadata: List[Dict[str, Any]]
+    agent_tools_metadata: List[Dict[str, Any]]
+    execute_code_metadata: Dict[str, Any]
     mcp_manager: 'MCPManager'
     agent_manager: 'AgentManager'
     kernel: Optional['Kernel']
     temperature: float
+    streaming: bool
     auto_accept_code: bool = False
