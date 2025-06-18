@@ -1,6 +1,12 @@
-# internal/code_processor.py
-import re
+# internal/code_executor.py
 import json
+import logging
+import os
+import re
+import subprocess
+import tempfile
+import textwrap
+from .tool_scaffolding import generate_tools_file_content, TOOLS_GENERATED_FILENAME
 
 # A mapping of common import names to their corresponding package names for uv.
 IMPORT_TO_PACKAGE_MAP = {
@@ -40,19 +46,10 @@ def _infer_dependencies(lines: list[str]) -> set[str]:
                 found_packages.add(IMPORT_TO_PACKAGE_MAP[top_level_module])
     return found_packages
 
-def process_tool_code(code: str) -> dict[str, str]:
+def process_tool_code(code: str) -> str:
     """
-    Processes LLM-generated tool code to handle dependency declarations.
-
-    This function searches for dependency declarations, normalizes them,
-    and wraps them in the `/// script` block required by `uv run`. It also
-    infers dependencies from imports. Crucially, it automatically injects
-    `from tools import ...` if the `Tools` class is used without being imported,
-    and it cleans up erroneous `tools` entries from package dependencies.
-
-    It returns a dictionary containing two versions of the code:
-    - `uv_code`: Formatted for direct execution with `uv run`.
-    - `llm_history_code`: A simplified version for the LLM's conversation history.
+    Processes LLM-generated tool code to handle dependency declarations
+    and prepares it for execution with 'uv run'.
     """
     lines = code.splitlines()
     packages = set()
@@ -86,17 +83,13 @@ def process_tool_code(code: str) -> dict[str, str]:
     is_tool_class_used = re.search(r"\bTools\.", code_body_for_check) is not None
     
     if is_tool_class_used:
-        # Add implicit dependency for gateway communication via `tools.py`.
         packages.add("requests")
-        # Remove "tools" if the LLM mistakenly added it as a package dependency.
         packages.discard("tools")
 
-        # If `Tools` is used but not imported, inject the import statement.
         is_tool_module_imported = any(re.search(r"^\s*(from|import)\s+tools\b", line) for line in cleaned_lines)
         if not is_tool_module_imported:
             import_statement = "from tools import Tools, MCPToolError"
             
-            # Find the last import to insert after, for proper code formatting.
             last_import_index = -1
             for i in range(len(cleaned_lines) - 1, -1, -1):
                 if cleaned_lines[i].strip().startswith(('import ', 'from ')):
@@ -106,21 +99,45 @@ def process_tool_code(code: str) -> dict[str, str]:
             if last_import_index != -1:
                 cleaned_lines.insert(last_import_index + 1, import_statement)
             else:
-                # No existing imports, add near top (respecting shebang).
                 insert_pos = 1 if cleaned_lines and cleaned_lines[0].startswith('#!') else 0
                 cleaned_lines.insert(insert_pos, import_statement)
 
-    # Infer any other dependencies from the code.
     packages.update(_infer_dependencies(cleaned_lines))
-
     final_code_body = '\n'.join(cleaned_lines)
 
     if packages:
         dep_line = f'# dependencies = {json.dumps(sorted(list(packages)))}'
-        llm_history_code = f'{dep_line}\n{final_code_body}'
         uv_code = f'# /// script\n{dep_line}\n# ///\n{final_code_body}'
     else:
-        llm_history_code = final_code_body
         uv_code = final_code_body
 
-    return {'uv_code': uv_code.strip(), 'llm_history_code': llm_history_code.strip()}
+    return uv_code.strip()
+
+def execute_python_code(
+    code: str,
+    all_tools_metadata: list,
+    gateway_host: str,
+    gateway_port: int,
+) -> dict:
+    """
+    Executes the given Python code in a sandboxed environment using 'uv run'.
+    This involves processing the code to inject dependencies and a tools proxy.
+    """
+    logging.info("Preparing to execute Python code via 'uv run'...")
+    processed_code = process_tool_code(code)
+    
+    with tempfile.TemporaryDirectory(prefix="ollama_tool_run_") as script_dir:
+        tools_code = generate_tools_file_content(all_tools_metadata, gateway_host, gateway_port)
+        with open(os.path.join(script_dir, TOOLS_GENERATED_FILENAME), 'w', encoding='utf-8') as f:
+            f.write(tools_code)
+
+        with open(os.path.join(script_dir, "main.py"), 'w', encoding='utf-8') as f:
+            f.write(processed_code)
+
+        logging.info("Executing processed code in sandbox...")
+        proc = subprocess.run(["uv", "run", "main.py"], capture_output=True, text=True, timeout=120, cwd=script_dir)
+
+        filtered_stderr = "\n".join([ln for ln in proc.stderr.splitlines() if not (ln.startswith(("Installed ", "Resolved ", "Downloaded ", "Audited ")) or ln.strip()=="")])
+
+        logging.info("Tool code execution finished.")
+        return {"stdout": proc.stdout.strip(), "stderr": filtered_stderr, "error": f"Script exited with code {proc.returncode}." if proc.returncode != 0 else None}

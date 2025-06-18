@@ -3,56 +3,74 @@ import uuid
 import logging
 from collections import deque
 from dataclasses import dataclass, field
-from typing import List, Dict, Any, Callable, Optional
+from typing import List, Dict, Any, Optional
+from enum import Enum, auto
+
+class AgentStatus(Enum):
+    """Defines the possible states of an agent during its lifecycle."""
+    READY = auto()      # Ready for the Kernel to run its next turn.
+    RUNNING = auto()    # Currently being processed by the Kernel.
+    WAITING = auto()    # Waiting for sub-agents to complete.
+    DONE = auto()       # Final response given, awaiting new user input.
+    ERROR = auto()      # An unrecoverable error occurred.
 
 @dataclass
 class AgentContext:
-    id: str = field(default_factory=lambda: f"agent-{uuid.uuid4().hex[:8]}")
-    role: str = "Sub-Agent"
+    """Represents the state and history of a single agent."""
+    id: str
+    role: str
     history: List[Dict[str, str]] = field(default_factory=list)
-    status: str = "pending"  # pending -> running -> completed | failed
+    status: AgentStatus = AgentStatus.READY
     result: Optional[str] = None
     parent_id: Optional[str] = None
+    is_main: bool = False
 
 class AgentManager:
-    """Manages the lifecycle and execution of sub-agents."""
+    """Manages the lifecycle and state of all agents."""
 
-    def __init__(self, llm_caller: Callable[[List[Dict[str, str]]], str]):
-        self._llm_caller = llm_caller
+    def __init__(self):
         self._agents: Dict[str, AgentContext] = {}
-        self._task_queue: deque[AgentContext] = deque()
+        self._main_agent_id: Optional[str] = None
 
-    def create_agent(self, role: str, initial_prompt: str, system_prompt: str, parent_id: Optional[str]) -> str:
+    def create_agent(self, role: str, initial_prompt: str, system_prompt: str, parent_id: Optional[str] = None) -> str:
+        """Creates a new agent, adds it to the manager, and returns its ID."""
+        is_main_agent = not self._main_agent_id
+        agent_id = "main" if is_main_agent else f"agent-{uuid.uuid4().hex[:8]}"
+        
+        history = [{"role": "system", "content": system_prompt}]
+        if initial_prompt:
+            history.append({"role": "user", "content": initial_prompt})
+
         agent = AgentContext(
+            id=agent_id,
             role=role,
-            history=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": initial_prompt}
-            ],
-            parent_id=parent_id
+            history=history,
+            parent_id=parent_id,
+            is_main=is_main_agent,
+            # The main agent starts in a DONE state, waiting for user input.
+            # Sub-agents start in a READY state, ready for the kernel to run.
+            status=AgentStatus.DONE if is_main_agent else AgentStatus.READY
         )
+        
         self._agents[agent.id] = agent
-        self._task_queue.append(agent)
-        logging.info(f"Created and queued agent {agent.id} (Role: {role})")
+        if is_main_agent:
+            self._main_agent_id = agent.id
+        
+        logging.info(f"Created agent {agent.id} (Role: {role}, Main: {is_main_agent})")
         return agent.id
-
-    def get_task_queue(self) -> deque[AgentContext]:
-        return self._task_queue
-
-    def run_agent_task(self, agent: AgentContext):
-        agent.status = "running"
-        logging.info(f"Running agent {agent.id} (Role: {agent.role})")
-        try:
-            final_response = self._llm_caller(agent.history)
-            agent.history.append({"role": "assistant", "content": final_response})
-            agent.result = final_response
-            agent.status = "completed"
-            logging.info(f"Agent {agent.id} completed successfully.")
-        except Exception as e:
-            error_message = f"Sub-agent {agent.id} failed during execution: {e}"
-            logging.error(error_message, exc_info=True)
-            agent.result = error_message
-            agent.status = "failed"
 
     def get_agent(self, agent_id: str) -> Optional[AgentContext]:
         return self._agents.get(agent_id)
+
+    def get_main_agent(self) -> Optional[AgentContext]:
+        if not self._main_agent_id:
+            return None
+        return self.get_agent(self._main_agent_id)
+
+    def get_next_ready_agent(self) -> Optional[AgentContext]:
+        """Finds the next agent that is in the READY state."""
+        # Simple FIFO for now. Can be extended with priority later.
+        for agent in self._agents.values():
+            if agent.status == AgentStatus.READY:
+                return agent
+        return None

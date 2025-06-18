@@ -72,11 +72,11 @@ class _MCPServerConnection:
                 self.process.kill()
 
     def _enqueue_stdout(self):
-        if not self.process: return
+        if not self.process or not self.process.stdout: return
         for line in iter(self.process.stdout.readline, ''): self.stdout_queue.put(line)
 
     def _log_stderr(self):
-        if not self.process: return
+        if not self.process or not self.process.stderr: return
         for line in iter(self.process.stderr.readline, ""): logging.warning(f"[{self.name} LOG]: {line.strip()}")
 
     def send_request(self, method, params=None):
@@ -104,6 +104,7 @@ class _MCPServerConnection:
 
     def _read_response(self, expected_id):
         start_time = time.time()
+        line = ""
         while time.time() - start_time < REQUEST_TIMEOUT:
             try:
                 line = self.stdout_queue.get(timeout=REQUEST_TIMEOUT)

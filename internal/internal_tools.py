@@ -57,6 +57,8 @@ INTERNAL_TOOLS_METADATA = [
 ]
 
 # Maps the tool name (string) to the callable function.
+# Note: 'execute_python_code' is added in chatty.py as its implementation
+# requires access to the application context.
 INTERNAL_TOOL_IMPLEMENTATIONS = {
     "get_weather": get_weather,
     "multiply_numbers": multiply_numbers,

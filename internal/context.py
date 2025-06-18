@@ -1,10 +1,17 @@
 # internal/context.py
-from typing import List, Dict, Any
+from typing import List, Dict, Any, TYPE_CHECKING, Optional
 from dataclasses import dataclass
+
+if TYPE_CHECKING:
+    from .ui import TerminalUI
+    from .prompt_manager import PromptManager
+    from .mcp_manager import MCPManager
+    from .agent_manager import AgentManager
+    from .kernel import Kernel
 
 @dataclass
 class AppContext:
-    """A container for shared application state, configuration, and services."""
+    """A container for shared application configuration and services."""
     model_name: str
     ollama_base_url: str
     gateway_host: str
@@ -12,11 +19,9 @@ class AppContext:
     mcp_config_path: str
     ui: 'TerminalUI'
     prompt_manager: 'PromptManager'
-    conversation_history: List[Dict[str, Any]]
     all_tools_metadata: List[Dict[str, Any]]
     mcp_manager: 'MCPManager'
     agent_manager: 'AgentManager'
+    kernel: Optional['Kernel']
+    temperature: float
     auto_accept_code: bool = False
-    consecutive_tool_calls: int = 0
-    last_tool_code: str = ""
-    tool_interaction_limit: int = 10
