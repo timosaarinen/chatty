@@ -25,7 +25,7 @@
 ## Requirements
 
 - [**Docker**](https://www.docker.com/): Recommended for sandboxed, secure execution.
-- [**Ollama**](https://ollama.com/): Must be running with at least one model installed.
+- [**Ollama**](https://ollama.com/): Must be installed and running if using local models.
 
 > **Docker is strongly recommended for security and easy setup.**
 
@@ -115,11 +115,11 @@ uv run chatty.py --litellm-model openrouter/anthropic/claude-3-opus
 To use an external model, provide the `--litellm-model` argument. The value should be a model string in LiteLLM's format, typically `provider/model_name`.
 
 ```bash
-# Example using OpenAI's GPT-4o. The --model argument is not needed.
-scripts/run.sh --litellm-model openai/gpt-4o
+# Example using OpenAI's GPT-4.1. The --model argument is not needed.
+scripts/run.sh --litellm-model openai/gpt-4.1
 
-# Example using OpenRouter to access Claude 3 Opus.
-scripts/run.sh --litellm-model openrouter/anthropic/claude-3-opus
+# Example using OpenRouter to access DeepSeek R1 (free)
+scripts/run.sh --litellm-model openrouter/deepseek/deepseek-r1-0528:free
 ```
 
 ### API Key Configuration
