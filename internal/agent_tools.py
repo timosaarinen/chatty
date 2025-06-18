@@ -52,7 +52,7 @@ class AgentTools:
             },
             {
                 "name": "wait_for_agents",
-                "description": "Waits for one or more agents/tasks to complete. This is a blocking call for the current script. Returns a dictionary of {agent_id: result}.",
+                "description": "Waits for one or more agents/tasks to complete. CRITICAL: This function signals the host application to run the agents. Your script should simply print the output of this function and exit. The actual results of the agents will be provided in your next turn in the TOOL_EXECUTION_RESULT.",
                 "inputSchema": {
                     "type": "object",
                     "properties": {
@@ -64,7 +64,10 @@ class AgentTools:
                     },
                     "required": ["agent_ids"]
                 },
-                "outputSchema": {"type": "object", "description": "A dictionary mapping each agent_id to its final result."}
+                "outputSchema": {
+                    "type": "string",
+                    "description": "A special directive string that your script MUST print. Do not attempt to parse or use this string."
+                }
             }
         ]
 
