@@ -1,0 +1,892 @@
+TITLE: Install LiteLLM Python Library
+DESCRIPTION: This command uses pip to install the LiteLLM library, which is essential for interacting with various LLM APIs through a unified interface. Ensure you have Python and pip installed before running this command.
+SOURCE: https://github.com/berriai/litellm/blob/main/README.md#_snippet_0
+
+LANGUAGE: shell
+CODE:
+```
+pip install litellm
+```
+
+----------------------------------------
+
+TITLE: Install LiteLLM Python Package
+DESCRIPTION: Command to install the LiteLLM library using pip. This is the first step to using the Python SDK.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/docs/index.md#_snippet_0
+
+LANGUAGE: shell
+CODE:
+```
+pip install litellm
+```
+
+----------------------------------------
+
+TITLE: Multi-Turn Function Calling with LiteLLM and Claude 3
+DESCRIPTION: This Python snippet illustrates a complete multi-turn function calling workflow. It defines a 'get_current_weather' tool, makes an initial 'completion' call to get the tool's arguments, then appends the simulated tool result to the messages before making a second 'completion' call to allow the model to deduce the final answer.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/docs/providers/anthropic.md#_snippet_26
+
+LANGUAGE: python
+CODE:
+```
+### 1ST FUNCTION CALL ###
+tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_current_weather",
+            "description": "Get the current weather in a given location",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "location": {
+                        "type": "string",
+                        "description": "The city and state, e.g. San Francisco, CA"
+                    },
+                    "unit": {"type": "string", "enum": ["celsius", "fahrenheit"]}
+                },
+                "required": ["location"]
+            }
+        }
+    }
+]
+messages = [
+    {
+        "role": "user",
+        "content": "What's the weather like in Boston today in Fahrenheit?"
+    }
+]
+try:
+    # test without max tokens
+    response = completion(
+        model="anthropic/claude-3-opus-20240229",
+        messages=messages,
+        tools=tools,
+        tool_choice="auto"
+    )
+    # Add any assertions, here to check response args
+    print(response)
+    assert isinstance(response.choices[0].message.tool_calls[0].function.name, str)
+    assert isinstance(
+        response.choices[0].message.tool_calls[0].function.arguments, str
+    )
+
+    messages.append(
+        response.choices[0].message.model_dump()
+    )  # Add assistant tool invokes
+    tool_result = (
+        '{"location": "Boston", "temperature": "72", "unit": "fahrenheit"}'
+    )
+    # Add user submitted tool results in the OpenAI format
+    messages.append(
+        {
+            "tool_call_id": response.choices[0].message.tool_calls[0].id,
+            "role": "tool",
+            "name": response.choices[0].message.tool_calls[0].function.name,
+            "content": tool_result
+        }
+    )
+    ### 2ND FUNCTION CALL ###
+    # In the second response, Claude should deduce answer from tool results
+    second_response = completion(
+        model="anthropic/claude-3-opus-20240229",
+        messages=messages,
+        tools=tools,
+        tool_choice="auto"
+    )
+    print(second_response)
+except Exception as e:
+    print(f"An error occurred - {str(e)}")
+```
+
+----------------------------------------
+
+TITLE: Calling OpenAI Chat Completion Models with LiteLLM (Python)
+DESCRIPTION: This snippet provides examples of how to invoke various OpenAI chat completion models using the `litellm.completion()` function. It demonstrates passing the model name and the `messages` array, highlighting the standard API call pattern for different OpenAI models.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/static/llms-full.txt#_snippet_31
+
+LANGUAGE: Python
+CODE:
+```
+completion('gpt-3.5-turbo', messages)
+completion('gpt-3.5-turbo-16k', messages)
+completion('gpt-3.5-turbo-16k-0613', messages)
+completion('gpt-4', messages)
+```
+
+----------------------------------------
+
+TITLE: Perform LLM Completions with LiteLLM in Python
+DESCRIPTION: This Python example demonstrates how to use LiteLLM's `completion` function to send requests to different LLM providers, such as OpenAI and Anthropic. It illustrates setting API keys via environment variables and making calls with a standardized message format, abstracting away provider-specific complexities.
+SOURCE: https://github.com/berriai/litellm/blob/main/README.md#_snippet_1
+
+LANGUAGE: python
+CODE:
+```
+from litellm import completion
+import os
+
+## set ENV variables
+os.environ["OPENAI_API_KEY"] = "your-openai-key"
+os.environ["ANTHROPIC_API_KEY"] = "your-anthropic-key"
+
+messages = [{ "content": "Hello, how are you?","role": "user"}]
+
+# openai call
+response = completion(model="openai/gpt-4o", messages=messages)
+
+# anthropic call
+response = completion(model="anthropic/claude-3-sonnet-20240229", messages=messages)
+print(response)
+```
+
+----------------------------------------
+
+TITLE: Installing LiteLLM via Pip
+DESCRIPTION: This command installs a specific version of the LiteLLM Python library using pip. It ensures that the `1.66.0.post1` version is installed, which corresponds to the stable release mentioned in the document.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/static/llms-full.txt#_snippet_80
+
+LANGUAGE: Shell
+CODE:
+```
+pip install litellm==1.66.0.post1
+```
+
+----------------------------------------
+
+TITLE: Making Standard OpenAI and Azure Completion Calls with LiteLLM - Python
+DESCRIPTION: This snippet demonstrates how to make basic, non-streaming API calls to OpenAI and Azure OpenAI models using `litellm.completion()`. It shows how to set up environment variables for API keys and base URLs, and then initiate a chat completion request with a user message.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/docs/tutorials/azure_openai.md#_snippet_0
+
+LANGUAGE: Python
+CODE:
+```
+import os 
+from litellm import completion
+
+# openai configs
+os.environ["OPENAI_API_KEY"] = ""
+
+# azure openai configs
+os.environ["AZURE_API_KEY"] = ""
+os.environ["AZURE_API_BASE"] = "https://openai-gpt-4-test-v-1.openai.azure.com/"
+os.environ["AZURE_API_VERSION"] = "2023-05-15"
+
+
+
+# openai call
+response = completion(
+    model = "gpt-3.5-turbo", 
+    messages = [{ "content": "Hello, how are you?","role": "user"}]
+)
+print("Openai Response\n")
+print(response)
+
+# azure call
+response = completion(
+    model = "azure/<your-azure-deployment>",
+    messages = [{ "content": "Hello, how are you?","role": "user"}]
+)
+print("Azure Response\n")
+print(response)
+```
+
+----------------------------------------
+
+TITLE: Making an OpenAI Completion Call with LiteLLM (Python)
+DESCRIPTION: This code shows how to make a completion call to an OpenAI model (gpt-3.5-turbo) using LiteLLM's unified `completion` function. It utilizes the `messages` array defined previously and expects an OpenAI-formatted response.
+SOURCE: https://github.com/berriai/litellm/blob/main/cookbook/litellm_router/test_questions/question2.txt#_snippet_1
+
+LANGUAGE: Python
+CODE:
+```
+# openai call
+response = completion(model="gpt-3.5-turbo", messages=messages)
+```
+
+----------------------------------------
+
+TITLE: Installing LiteLLM Proxy - Shell
+DESCRIPTION: Command to install the LiteLLM library including the necessary dependencies for running the proxy server using pip.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/src/pages/index.md#_snippet_22
+
+LANGUAGE: shell
+CODE:
+```
+pip install 'litellm[proxy]'
+```
+
+----------------------------------------
+
+TITLE: Making a Basic LiteLLM Completion Call
+DESCRIPTION: This snippet shows a basic completion call using the LiteLLM library with the 'gpt-3.5-turbo' model. It assumes `messages` is a predefined list of message objects, demonstrating a fundamental interaction with an LLM.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/static/llms-full.txt#_snippet_61
+
+LANGUAGE: Python
+CODE:
+```
+response = completion(model="gpt-3.5-turbo", messages=messages)
+```
+
+----------------------------------------
+
+TITLE: Message Object Structure in LiteLLM Request Body (JSON)
+DESCRIPTION: This snippet outlines the required and optional properties for each message object within the `messages` array of the LiteLLM completion API request. It defines roles, content, optional author name for function calls, and the `function_call` object for model-generated function invocations.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/static/llms-full.txt#_snippet_29
+
+LANGUAGE: JSON
+CODE:
+```
+- `role`: *string* - The role of the message's author. Roles can be: system, user, assistant, or function.
+
+- `content`: *string or null* - The contents of the message. It is required for all messages, but may be null for assistant messages with function calls.
+
+- `name`: *string (optional)* - The name of the author of the message. It is required if the role is "function". The name should match the name of the function represented in the content. It can contain characters (a-z, A-Z, 0-9), and underscores, with a maximum length of 64 characters.
+
+- `function_call`: *object (optional)* - The name and arguments of a function that should be called, as generated by the model.
+```
+
+----------------------------------------
+
+TITLE: Installing LiteLLM Python Package
+DESCRIPTION: This snippet demonstrates how to install the LiteLLM Python library using pip, which is the essential first step to utilize its functionalities for interacting with various LLM providers and implementing model fallbacks.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/docs/tutorials/model_fallbacks.md#_snippet_0
+
+LANGUAGE: python
+CODE:
+```
+!pip install litellm
+```
+
+----------------------------------------
+
+TITLE: LiteLLM Supported AI Model Identifiers
+DESCRIPTION: A complete enumeration of all AI model identifiers available for use with LiteLLM, including provider-specific names, version numbers, and regional endpoint variations for services like AWS Bedrock.
+SOURCE: https://github.com/berriai/litellm/blob/main/tests/local_testing/whitelisted_bedrock_models.txt#_snippet_0
+
+LANGUAGE: APIDOC
+CODE:
+```
+ai21.j2-mid-v1
+ai21.j2-ultra-v1
+ai21.jamba-instruct-v1:0
+amazon.titan-text-lite-v1
+amazon.titan-text-express-v1
+amazon.titan-text-premier-v1:0
+mistral.mistral-7b-instruct-v0:2
+mistral.mixtral-8x7b-instruct-v0:1
+mistral.mistral-large-2402-v1:0
+mistral.mistral-large-2407-v1:0
+mistral.mistral-small-2402-v1:0
+bedrock/us-west-2/mistral.mixtral-8x7b-instruct-v0:1
+bedrock/us-east-1/mistral.mixtral-8x7b-instruct-v0:1
+bedrock/eu-west-3/mistral.mixtral-8x7b-instruct-v0:1
+bedrock/us-west-2/mistral.mistral-7b-instruct-v0:2
+bedrock/us-east-1/mistral.mistral-7b-instruct-v0:2
+bedrock/eu-west-3/mistral.mistral-7b-instruct-v0:2
+bedrock/us-east-1/mistral.mistral-large-2402-v1:0
+bedrock/us-west-2/mistral.mistral-large-2402-v1:0
+bedrock/eu-west-3/mistral.mistral-large-2402-v1:0
+anthropic.claude-3-sonnet-20240229-v1:0
+anthropic.claude-3-5-sonnet-20240620-v1:0
+anthropic.claude-3-7-sonnet-20250219-v1:0
+anthropic.claude-3-5-sonnet-20241022-v2:0
+anthropic.claude-3-haiku-20240307-v1:0
+anthropic.claude-3-5-haiku-20241022-v1:0
+anthropic.claude-3-opus-20240229-v1:0
+us.anthropic.claude-3-sonnet-20240229-v1:0
+us.anthropic.claude-3-5-sonnet-20240620-v1:0
+us.anthropic.claude-3-7-sonnet-20250219-v1:0
+us.anthropic.claude-3-5-sonnet-20241022-v2:0
+us.anthropic.claude-3-haiku-20240307-v1:0
+us.anthropic.claude-3-5-haiku-20241022-v1:0
+us.anthropic.claude-3-opus-20240229-v1:0
+eu.anthropic.claude-3-sonnet-20240229-v1:0
+eu.anthropic.claude-3-5-sonnet-20240620-v1:0
+eu.anthropic.claude-3-5-sonnet-20241022-v2:0
+eu.anthropic.claude-3-haiku-20240307-v1:0
+eu.anthropic.claude-3-5-haiku-20241022-v1:0
+eu.anthropic.claude-3-opus-20240229-v1:0
+anthropic.claude-v1
+bedrock/us-east-1/anthropic.claude-v1
+bedrock/us-west-2/anthropic.claude-v1
+bedrock/ap-northeast-1/anthropic.claude-v1
+bedrock/ap-northeast-1/1-month-commitment/anthropic.claude-v1
+bedrock/ap-northeast-1/6-month-commitment/anthropic.claude-v1
+bedrock/eu-central-1/anthropic.claude-v1
+bedrock/eu-central-1/1-month-commitment/anthropic.claude-v1
+bedrock/eu-central-1/6-month-commitment/anthropic.claude-v1
+bedrock/us-east-1/1-month-commitment/anthropic.claude-v1
+bedrock/us-east-1/6-month-commitment/anthropic.claude-v1
+bedrock/us-west-2/1-month-commitment/anthropic.claude-v1
+bedrock/us-west-2/6-month-commitment/anthropic.claude-v1
+anthropic.claude-v2
+bedrock/us-east-1/anthropic.claude-v2
+bedrock/us-west-2/anthropic.claude-v2
+bedrock/ap-northeast-1/anthropic.claude-v2
+bedrock/ap-northeast-1/1-month-commitment/anthropic.claude-v2
+bedrock/ap-northeast-1/6-month-commitment/anthropic.claude-v2
+bedrock/eu-central-1/anthropic.claude-v2
+bedrock/eu-central-1/1-month-commitment/anthropic.claude-v2
+bedrock/eu-central-1/6-month-commitment/anthropic.claude-v2
+bedrock/us-east-1/1-month-commitment/anthropic.claude-v2
+bedrock/us-east-1/6-month-commitment/anthropic.claude-v2
+bedrock/us-west-2/1-month-commitment/anthropic.claude-v2
+bedrock/us-west-2/6-month-commitment/anthropic.claude-v2
+anthropic.claude-v2:1
+bedrock/us-east-1/anthropic.claude-v2:1
+bedrock/us-west-2/anthropic.claude-v2:1
+bedrock/ap-northeast-1/anthropic.claude-v2:1
+bedrock/ap-northeast-1/1-month-commitment/anthropic.claude-v2:1
+bedrock/ap-northeast-1/6-month-commitment/anthropic.claude-v2:1
+bedrock/eu-central-1/anthropic.claude-v2:1
+bedrock/eu-central-1/1-month-commitment/anthropic.claude-v2:1
+bedrock/eu-central-1/6-month-commitment/anthropic.claude-v2:1
+bedrock/us-east-1/1-month-commitment/anthropic.claude-v2:1
+bedrock/us-east-1/6-month-commitment/anthropic.claude-v2:1
+bedrock/us-west-2/1-month-commitment/anthropic.claude-v2:1
+bedrock/us-west-2/6-month-commitment/anthropic.claude-v2:1
+anthropic.claude-instant-v1
+bedrock/us-east-1/anthropic.claude-instant-v1
+bedrock/us-east-1/1-month-commitment/anthropic.claude-instant-v1
+bedrock/us-east-1/6-month-commitment/anthropic.claude-instant-v1
+bedrock/us-west-2/1-month-commitment/anthropic.claude-instant-v1
+bedrock/us-west-2/6-month-commitment/anthropic.claude-instant-v1
+bedrock/us-west-2/anthropic.claude-instant-v1
+bedrock/ap-northeast-1/anthropic.claude-instant-v1
+bedrock/ap-northeast-1/1-month-commitment/anthropic.claude-instant-v1
+bedrock/ap-northeast-1/6-month-commitment/anthropic.claude-instant-v1
+bedrock/eu-central-1/anthropic.claude-instant-v1
+bedrock/eu-central-1/1-month-commitment/anthropic.claude-instant-v1
+bedrock/eu-central-1/6-month-commitment/anthropic.claude-instant-v1
+cohere.command-text-v14
+bedrock/*/1-month-commitment/cohere.command-text-v14
+bedrock/*/6-month-commitment/cohere.command-text-v14
+cohere.command-light-text-v14
+bedrock/*/1-month-commitment/cohere.command-light-text-v14
+bedrock/*/6-month-commitment/cohere.command-light-text-v14
+cohere.command-r-plus-v1:0
+cohere.command-r-v1:0
+meta.llama3-3-70b-instruct-v1:0
+meta.llama2-13b-chat-v1
+meta.llama2-70b-chat-v1
+meta.llama3-8b-instruct-v1:0
+bedrock/us-east-1/meta.llama3-8b-instruct-v1:0
+bedrock/us-west-1/meta.llama3-8b-instruct-v1:0
+bedrock/ap-south-1/meta.llama3-8b-instruct-v1:0
+bedrock/ca-central-1/meta.llama3-8b-instruct-v1:0
+```
+
+----------------------------------------
+
+TITLE: Full Implementation of completion_with_fallbacks() in Python
+DESCRIPTION: This comprehensive snippet presents the complete implementation of the `completion_with_fallbacks()` function. It orchestrates the logic for trying primary and fallback models, managing rate limits with cooldowns, and ensuring a response within a defined timeout, providing robust reliability for LLM API calls.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/docs/tutorials/fallbacks.md#_snippet_4
+
+LANGUAGE: Python
+CODE:
+```
+    response = None
+    rate_limited_models = set()
+    model_expiration_times = {}
+    start_time = time.time()
+    fallbacks = [kwargs["model"]] + kwargs["fallbacks"]
+    del kwargs["fallbacks"]  # remove fallbacks so it's not recursive
+
+    while response == None and time.time() - start_time < 45:
+        for model in fallbacks:
+            # loop thru all models
+            try:
+                if (
+                    model in rate_limited_models
+                ):  # check if model is currently cooling down
+                    if (
+                        model_expiration_times.get(model)
+                        and time.time() >= model_expiration_times[model]
+                    ):
+                        rate_limited_models.remove(
+                            model
+                        )  # check if it's been 60s of cool down and remove model
+                    else:
+                        continue  # skip model
+
+                # delete model from kwargs if it exists
+                if kwargs.get("model"):
+                    del kwargs["model"]
+
+                print("making completion call", model)
+                response = litellm.completion(**kwargs, model=model)
+
+                if response != None:
+                    return response
+
+            except Exception as e:
+                print(f"got exception {e} for model {model}")
+                rate_limited_models.add(model)
+                model_expiration_times[model] = (
+                    time.time() + 60
+                )  # cool down this selected model
+                pass
+    return response
+```
+
+----------------------------------------
+
+TITLE: Call LiteLLM Completion with Model String (Python)
+DESCRIPTION: Demonstrates the basic syntax for calling the `completion` function in liteLLM, specifying the desired model using a string identifier. This pattern is used for various providers like OpenRouter and Novita AI.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/src/pages/completion/supported.md#_snippet_14
+
+LANGUAGE: Python
+CODE:
+```
+completion('model_name', messages)
+```
+
+----------------------------------------
+
+TITLE: Calling OpenAI Chat Completion Models with LiteLLM (Python)
+DESCRIPTION: This snippet demonstrates how to use various OpenAI chat completion models via the LiteLLM `completion` function. It shows the general syntax for initiating a chat completion request, where `model` specifies the desired OpenAI model and `messages` contains the conversation history.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/docs/providers/openai.md#_snippet_10
+
+LANGUAGE: Python
+CODE:
+```
+response = completion(model="gpt-4", messages=messages)
+```
+
+----------------------------------------
+
+TITLE: Stream Google Gemini Messages API with LiteLLM Python SDK
+DESCRIPTION: Shows how to stream responses from the Google Gemini API using the LiteLLM Python SDK. This setup requires setting the `GEMINI_API_KEY` environment variable and allows for asynchronous processing of streamed content.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/docs/anthropic_unified.md#_snippet_5
+
+LANGUAGE: python
+CODE:
+```
+import litellm
+import os
+
+# Set API key
+os.environ["GEMINI_API_KEY"] = "your-gemini-api-key"
+
+response = await litellm.anthropic.messages.acreate(
+    messages=[{"role": "user", "content": "Hello, can you tell me a short joke?"}],
+    model="gemini/gemini-2.0-flash-exp",
+    max_tokens=100,
+    stream=True,
+)
+async for chunk in response:
+    print(chunk)
+```
+
+----------------------------------------
+
+TITLE: Encoding Text with LiteLLM's `encode` Function
+DESCRIPTION: Illustrates the use of `litellm.encode` to convert a text string into model-specific tokens. This function supports various models (Anthropic, Cohere, Llama2, OpenAI) and defaults to `tiktoken` for unsupported models, providing a way to pre-process text for tokenization.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/docs/completion/token_usage.md#_snippet_1
+
+LANGUAGE: python
+CODE:
+```
+from litellm import encode, decode
+
+sample_text = "Hellö World, this is my input string!"
+# openai encoding + decoding
+openai_tokens = encode(model="gpt-3.5-turbo", text=sample_text)
+print(openai_tokens)
+```
+
+----------------------------------------
+
+TITLE: Performing a Quick Start Completion with LiteLLM - Python
+DESCRIPTION: This Python snippet demonstrates how to make a basic completion call using LiteLLM. It shows setting the OpenAI API key as an environment variable, calling the `completion` function with a specified model and messages, and then printing the returned usage object.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/docs/completion/usage.md#_snippet_1
+
+LANGUAGE: python
+CODE:
+```
+from litellm import completion
+import os
+
+## set ENV variables
+os.environ["OPENAI_API_KEY"] = "your-api-key"
+
+response = completion(
+  model="gpt-3.5-turbo",
+  messages=[{ "content": "Hello, how are you?","role": "user"}]
+)
+
+print(response.usage)
+```
+
+----------------------------------------
+
+TITLE: Set LiteLLM Salt Key for Database Encryption
+DESCRIPTION: Explains the importance of setting a salt key for encrypting and decrypting sensitive variables, such as LLM API keys, stored in the database. It strongly advises against changing this key after models have been added to prevent data corruption.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/docs/proxy/prod.md#_snippet_9
+
+LANGUAGE: bash
+CODE:
+```
+export LITELLM_SALT_KEY="sk-1234"
+```
+
+----------------------------------------
+
+TITLE: Running LiteLLM Proxy with OpenAI Compatible Endpoint
+DESCRIPTION: These commands set the OpenAI API key and then start the LiteLLM proxy, configuring it to connect to a custom OpenAI-compatible endpoint specified by `--api_base` and route requests to `<your model name>`.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/docs/proxy/quick_start.md#_snippet_8
+
+LANGUAGE: shell
+CODE:
+```
+$ export OPENAI_API_KEY=my-api-key
+```
+
+LANGUAGE: shell
+CODE:
+```
+$ litellm --model openai/<your model name> --api_base <your-api-base> # e.g. http://0.0.0.0:3000
+```
+
+----------------------------------------
+
+TITLE: Installing LiteLLM Python Library
+DESCRIPTION: This snippet demonstrates how to install the LiteLLM Python library using pip, which is a prerequisite for interacting with various LLM APIs, including Together AI.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/docs/tutorials/TogetherAI_liteLLM.md#_snippet_0
+
+LANGUAGE: Python
+CODE:
+```
+!pip install litellm
+```
+
+----------------------------------------
+
+TITLE: Installing LiteLLM using pip (Bash)
+DESCRIPTION: This snippet demonstrates the command-line instruction to install the LiteLLM library using pip, the Python package installer. This is the fundamental first step to set up LiteLLM in a development environment.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/docs/default_code_snippet.md#_snippet_0
+
+LANGUAGE: bash
+CODE:
+```
+pip install litellm
+```
+
+----------------------------------------
+
+TITLE: Parsing Function Call Data from Model Response
+DESCRIPTION: This snippet extracts the `function_call` object from the `litellm.completion` response. This object contains the name of the function the model decided to call and the arguments it suggests passing to that function, which is crucial for executing the local tool.
+SOURCE: https://github.com/berriai/litellm/blob/main/cookbook/liteLLM_function_calling.ipynb#_snippet_5
+
+LANGUAGE: python
+CODE:
+```
+function_call_data = response["choices"][0]["message"]["function_call"]
+function_call_data
+```
+
+----------------------------------------
+
+TITLE: Making a Synchronous OpenAI Call with LiteLLM (Python)
+DESCRIPTION: This code shows how to make a synchronous call to the OpenAI 'gpt-3.5-turbo' model using LiteLLM's 'completion' function. It utilizes the 'messages' variable, previously defined, as the conversational input for the model.
+SOURCE: https://github.com/berriai/litellm/blob/main/cookbook/litellm_router/test_questions/question1.txt#_snippet_1
+
+LANGUAGE: Python
+CODE:
+```
+# openai call
+response = completion(model="gpt-3.5-turbo", messages=messages)
+```
+
+----------------------------------------
+
+TITLE: Calling Anthropic Claude Instant 1 with LiteLLM (Python)
+DESCRIPTION: This snippet demonstrates making a completion call to Anthropic's `claude-instant-1` model via LiteLLM. It requires the `ANTHROPIC_API_KEY` environment variable to be set for successful API access.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/static/llms-full.txt#_snippet_36
+
+LANGUAGE: Python
+CODE:
+```
+completion('claude-instant-1', messages)
+```
+
+----------------------------------------
+
+TITLE: Deploy LiteLLM using Docker
+DESCRIPTION: Instructions to run LiteLLM as a Docker container, enabling database storage for models and exposing the service on port 4000.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/release_notes/v1.72.0-stable/index.md#_snippet_0
+
+LANGUAGE: Docker
+CODE:
+```
+docker run
+-e STORE_MODEL_IN_DB=True
+-p 4000:4000
+ghcr.io/berriai/litellm:main-v1.72.0-stable
+```
+
+----------------------------------------
+
+TITLE: Setting OpenAI API Key - Python
+DESCRIPTION: This snippet demonstrates how to set the OpenAI API key as an environment variable in Python, which is a prerequisite for making API calls with LiteLLM or other OpenAI integrations.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/docs/providers/text_completion_openai.md#_snippet_0
+
+LANGUAGE: python
+CODE:
+```
+import os 
+os.environ["OPENAI_API_KEY"] = "your-api-key"
+```
+
+----------------------------------------
+
+TITLE: Stream Response via LiteLLM Proxy with OpenAI SDK
+DESCRIPTION: This example illustrates how to get a streaming response using the OpenAI SDK, with requests directed through a LiteLLM Proxy. The OpenAI client is configured with the proxy's `base_url`, and `client.responses.create` is called with `stream=True` to receive events iteratively.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/docs/providers/openai/responses_api.md#_snippet_7
+
+LANGUAGE: python
+CODE:
+```
+from openai import OpenAI
+
+# Initialize client with your proxy URL
+client = OpenAI(
+    base_url="http://localhost:4000",  # Your proxy URL
+    api_key="your-api-key"             # Your proxy API key
+)
+
+# Streaming response
+response = client.responses.create(
+    model="openai/o1-pro",
+    input="Tell me a three sentence bedtime story about a unicorn.",
+    stream=True
+)
+
+for event in response:
+    print(event)
+```
+
+----------------------------------------
+
+TITLE: Installing LiteLLM Python Package
+DESCRIPTION: This snippet demonstrates how to install the LiteLLM Python library using pip. This installation is a prerequisite for utilizing LiteLLM's functionalities to interact with various LLM providers.
+SOURCE: https://github.com/berriai/litellm/blob/main/cookbook/litellm_test_multiple_llm_demo.ipynb#_snippet_0
+
+LANGUAGE: python
+CODE:
+```
+!pip install litellm
+```
+
+----------------------------------------
+
+TITLE: Installing LiteLLM Python Package
+DESCRIPTION: This snippet demonstrates how to install the LiteLLM Python library using pip, which is necessary to interact with various LLM providers like OpenAI and Azure OpenAI.
+SOURCE: https://github.com/berriai/litellm/blob/main/cookbook/Parallel_function_calling.ipynb#_snippet_0
+
+LANGUAGE: Python
+CODE:
+```
+!pip install litellm
+```
+
+----------------------------------------
+
+TITLE: Calling OpenAI GPT-3.5-Turbo with liteLLM in Python
+DESCRIPTION: This example demonstrates how to make a call to OpenAI's `gpt-3.5-turbo` model using the `litellm.completion` function. It sends a user message asking about the weather in San Francisco, adhering to the chatGPT input format.
+SOURCE: https://github.com/berriai/litellm/blob/main/cookbook/liteLLM_Getting_Started.ipynb#_snippet_3
+
+LANGUAGE: python
+CODE:
+```
+completion(model="gpt-3.5-turbo", messages=[{ "content": "what's the weather in SF","role": "user"}])
+```
+
+----------------------------------------
+
+TITLE: Integrating OpenAI Python Client with LiteLLM Proxy
+DESCRIPTION: This Python snippet demonstrates how to configure the OpenAI Python client (v1.0.0+) to route API requests through the litellm proxy. By setting the `base_url` to the proxy's address, all subsequent chat completion requests are directed to the model configured on the litellm proxy, enabling seamless interaction with various LLMs via a unified OpenAI-compatible interface.
+SOURCE: https://github.com/berriai/litellm/blob/main/litellm/proxy/README.md#_snippet_2
+
+LANGUAGE: python
+CODE:
+```
+import openai # openai v1.0.0+
+client = openai.OpenAI(api_key="anything",base_url="http://0.0.0.0:8000") # set proxy to base_url
+# request sent to model set on litellm proxy, `litellm --model`
+response = client.chat.completions.create(model="gpt-3.5-turbo", messages = [
+    {
+        "role": "user",
+        "content": "this is a test request, write a short poem"
+    }
+])
+
+print(response)
+```
+
+----------------------------------------
+
+TITLE: Parameters for litellm.completion function and config.yaml
+DESCRIPTION: This snippet outlines the various parameters available for the `litellm.completion` function in the SDK and for `litellm_params` within `config.yaml`. It specifies whether each parameter is required or optional and provides a brief description of its purpose.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/docs/proxy/prompt_management.md#_snippet_12
+
+LANGUAGE: APIDOC
+CODE:
+```
+prompt_id: str # required
+prompt_variables: Optional[dict] # optional
+langfuse_public_key: Optional[str] # optional
+langfuse_secret: Optional[str] # optional
+langfuse_secret_key: Optional[str] # optional
+langfuse_host: Optional[str] # optional
+```
+
+----------------------------------------
+
+TITLE: Making OpenAI Completion Calls with LiteLLM
+DESCRIPTION: This example shows how to use LiteLLM's `completion` function to interact with OpenAI models like 'gpt-4o'. It requires the OpenAI API key to be set as an environment variable and demonstrates a basic chat completion request.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/docs/providers/openai.md#_snippet_1
+
+LANGUAGE: python
+CODE:
+```
+import os 
+from litellm import completion
+
+os.environ["OPENAI_API_KEY"] = "your-api-key"
+
+# openai call
+response = completion(
+    model = "gpt-4o", 
+    messages=[{ "content": "Hello, how are you?","role": "user"}]
+)
+```
+
+----------------------------------------
+
+TITLE: Making Basic LLM API Calls with LiteLLM (Python)
+DESCRIPTION: This snippet demonstrates how to make basic LLM API calls using LiteLLM's `completion` function. It shows examples for both OpenAI and Cohere models, requiring respective API keys set as environment variables.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/docs/getting_started.md#_snippet_0
+
+LANGUAGE: Python
+CODE:
+```
+from litellm import completion
+
+## set ENV variables
+os.environ["OPENAI_API_KEY"] = "your-api-key"
+os.environ["COHERE_API_KEY"] = "your-api-key"
+
+messages = [{ "content": "Hello, how are you?","role": "user"}]
+
+# openai call
+response = completion(model="gpt-3.5-turbo", messages=messages)
+
+# cohere call
+response = completion("command-nightly", messages)
+```
+
+----------------------------------------
+
+TITLE: Installing LiteLLM with Pip
+DESCRIPTION: This command installs the LiteLLM library using the Python package manager, pip. It specifies the exact version `1.67.4.post1` to ensure a stable and consistent installation, which is crucial for reproducible environments.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/release_notes/v1.67.4-stable/index.md#_snippet_1
+
+LANGUAGE: Shell
+CODE:
+```
+pip install litellm==1.67.4.post1
+```
+
+----------------------------------------
+
+TITLE: Calling Vertex AI `streamGenerateContent` with Client Credentials (Curl)
+DESCRIPTION: This `curl` command demonstrates how to make a `streamGenerateContent` request to a Vertex AI model via the LiteLLM proxy, using client-side credentials obtained via `gcloud auth`. It includes an image file and text as input, showcasing multimodal capabilities and direct pass-through.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/docs/pass_through/vertex_ai.md#_snippet_4
+
+LANGUAGE: bash
+CODE:
+```
+curl \
+  -X POST \
+  -H "Authorization: Bearer $(gcloud auth application-default print-access-token)" \
+  -H "Content-Type: application/json" \
+  "${LITELLM_PROXY_BASE_URL}/vertex_ai/v1/projects/${PROJECT_ID}/locations/us-central1/publishers/google/models/${MODEL_ID}:streamGenerateContent" -d \
+  $'{
+    "contents": {
+      "role": "user",
+      "parts": [
+        {
+        "fileData": {
+          "mimeType": "image/png",
+          "fileUri": "gs://generativeai-downloads/images/scones.jpg"
+          }
+        },
+        {
+          "text": "Describe this picture."
+        }
+      ]
+    }
+  }'
+```
+
+----------------------------------------
+
+TITLE: Installing LiteLLM and Python-Dotenv
+DESCRIPTION: This command installs the necessary Python packages: `litellm` for interacting with LLMs and `python-dotenv` for loading environment variables. These are prerequisites for running the subsequent code examples.
+SOURCE: https://github.com/berriai/litellm/blob/main/cookbook/litellm_Test_Multiple_Providers.ipynb#_snippet_0
+
+LANGUAGE: python
+CODE:
+```
+!pip install litellm python-dotenv
+```
+
+----------------------------------------
+
+TITLE: Installing LiteLLM (Shell)
+DESCRIPTION: Installs the LiteLLM Python package using pip. This is the necessary first step to use the LiteLLM Python SDK in your environment.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/src/pages/index.md#_snippet_0
+
+LANGUAGE: shell
+CODE:
+```
+pip install litellm
+```
+
+----------------------------------------
+
+TITLE: Send Chat Completion Request via LiteLLM Proxy (Langchain)
+DESCRIPTION: This Python snippet illustrates how to use Langchain's `ChatOpenAI` model to interact with the LiteLLM proxy. It configures the `openai_api_base` to the proxy's address and sends a chat message with both system and human prompts. The response from the model is then printed.
+SOURCE: https://github.com/berriai/litellm/blob/main/docs/my-website/docs/providers/anthropic.md#_snippet_12
+
+LANGUAGE: python
+CODE:
+```
+from langchain.chat_models import ChatOpenAI
+from langchain.prompts.chat import (
+    ChatPromptTemplate,
+    HumanMessagePromptTemplate,
+    SystemMessagePromptTemplate,
+)
+from langchain.schema import HumanMessage, SystemMessage
+
+chat = ChatOpenAI(
+    openai_api_base="http://0.0.0.0:4000", # set openai_api_base to the LiteLLM Proxy
+    model = "claude-3",
+    temperature=0.1
+)
+
+messages = [
+    SystemMessage(
+        content="You are a helpful assistant that im using to make a test request to."
+    ),
+    HumanMessage(
+        content="test from litellm. tell me why it's amazing in 1 sentence"
+    ),
+]
+response = chat(messages)
+
+print(response)
+```

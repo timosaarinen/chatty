@@ -94,16 +94,53 @@ You can run `chatty` directly on your host if you have `uv` installed.
 ### Requirements
 
 *   [**uv**](https://github.com/astral-sh/uv): For running the script and managing dependencies.
-*   [**Ollama**](https://ollama.com/): Must be installed and running.
+*   [**Ollama**](https://ollama.com/): Must be installed and running if using local models.
 
 ### Usage
 
-You must specify an Ollama model to use. If you are unsure which models you have, run `ollama list`.
+You must specify a model for inference using either `--model` for a local Ollama model or `--litellm-model` for an external one.
 
 ```bash
-# Example using a common coding model
+# Example using a local Ollama model
 uv run chatty.py --model codellama:latest
 
-# Example with a different model and MCP configuration
-uv run chatty.py --model qwen2.5-coder:7b --mcp mcp-config/demo-and-fetch.json
+# Example using an external model via LiteLLM
+uv run chatty.py --litellm-model openrouter/anthropic/claude-3-opus
+```
+
+## Using External Models (LiteLLM)
+
+`chatty` can use [LiteLLM](https://www.litellm.ai/) to connect to hundreds of LLM providers, including OpenAI, Anthropic, Google Gemini, OpenRouter, and more.
+
+To use an external model, provide the `--litellm-model` argument. The value should be a model string in LiteLLM's format, typically `provider/model_name`.
+
+```bash
+# Example using OpenAI's GPT-4o. The --model argument is not needed.
+scripts/run.sh --litellm-model openai/gpt-4o
+
+# Example using OpenRouter to access Claude 3 Opus.
+scripts/run.sh --litellm-model openrouter/anthropic/claude-3-opus
+```
+
+### API Key Configuration
+
+To use commercial model providers, you must provide an API key. Set the appropriate environment variable for your chosen provider **before** running `chatty`. LiteLLM automatically detects these variables.
+
+Common examples:
+- **OpenAI:** `export OPENAI_API_KEY="sk-..."`
+- **Anthropic:** `export ANTHROPIC_API_KEY="..."`
+- **Google:** `export GEMINI_API_KEY="..."`
+- **OpenRouter:** `export OPENROUTER_API_KEY="..."`
+
+You can pass environment variables to the Docker container using the `-e` flag. Because the `scripts/run.sh` helper does not forward environment variables, you must call `docker run` directly.
+
+```bash
+docker run --rm \
+  --add-host=host.docker.internal:host-gateway \
+  -it \
+  -e OPENAI_API_KEY=$OPENAI_API_KEY \
+  -v "$(pwd)":/home/developer/chatty:rw \
+  "chatty" \
+    --litellm-model "openai/gpt-4o" \
+    --ollama http://host.docker.internal:11434
 ```
