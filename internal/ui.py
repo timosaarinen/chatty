@@ -239,3 +239,28 @@ class TerminalUI:
         self._last_turn_status = agent_status
         if is_new_turn:
             self.console.print(self.console.rule(style=self.theme["separator"]))
+
+    def display_interactive_session_start(self):
+        """Displays a banner indicating an interactive code session is starting."""
+        self.console.print(Panel(
+            "Your terminal is now connected to the script.\n"
+            "The agent will resume after the script finishes.\n"
+            "Use Ctrl+D (EOF) to end input stream if the script is waiting for input.",
+            title="[bold yellow]Interactive Session Started[/]",
+            border_style="yellow",
+            expand=False,
+            padding=(1, 2)
+        ))
+
+    def display_interactive_session_end(self, return_code: int):
+        """Displays a banner indicating an interactive session has ended."""
+        style = "green" if return_code == 0 else "red"
+        status_text = "SUCCESS" if return_code == 0 else "ERROR"
+        
+        panel = Panel(
+            f"Script finished with exit code: [bold]{return_code}[/bold]",
+            title=f"[bold {style}]Interactive Session Ended ({status_text})[/]",
+            border_style=style,
+            expand=False
+        )
+        self.console.print(panel)

@@ -236,14 +236,16 @@ def main():
         agent_manager = AgentManager()
         
         # Define a function for the 'execute_python_code' tool
-        def _execute_python_code_impl(code: str):
+        def _execute_python_code_impl(code: str, interactive: bool = False):
             # This implementation needs access to the full tool metadata and gateway info
             # We will fetch it from the AppContext which is configured shortly
             return execute_python_code(
-                code, 
-                app_context.all_tools_metadata, 
-                GATEWAY_HOST, 
-                GATEWAY_PORT
+                code,
+                app_context.all_tools_metadata,
+                GATEWAY_HOST,
+                GATEWAY_PORT,
+                interactive=interactive,
+                ui=app_context.ui
             )
 
         # AgentTools provides spawn/wait capabilities, its implementation uses the AgentManager
@@ -261,10 +263,13 @@ def main():
         # Combine all tool metadata
         execute_code_metadata = {
             "name": "execute_python_code",
-            "description": "Executes a Python code string in a sandboxed environment. Use this for complex logic, calculations, or tasks not covered by other tools. The code MUST include necessary imports. For third-party libraries, add a comment `# dependencies = [\"package-name\"]`.",
+            "description": "Executes a Python code string in a sandboxed environment. Use this for complex logic, calculations, or tasks not covered by other tools. The code MUST include necessary imports. For third-party libraries, add a comment `# dependencies = [\"package-name\"]`. For interactive scripts that require user input via `input()`, set `interactive` to `true`.",
             "inputSchema": {
                 "type": "object",
-                "properties": { "code": {"type": "string", "description": "The Python code to execute."}},
+                "properties": {
+                    "code": {"type": "string", "description": "The Python code to execute."},
+                    "interactive": {"type": "boolean", "description": "Set to true for scripts that require user input via `input()`. Defaults to false.", "default": False},
+                },
                 "required": ["code"],
             },
             "outputSchema": {"type": "object", "description": "An object containing stdout, stderr, and any system errors."}

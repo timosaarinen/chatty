@@ -34,6 +34,7 @@ For complex logic, data manipulation, file operations, or any task not covered b
 
 -   The `code` argument must be a string containing valid Python code.
 -   If you use any third-party libraries (e.g., `requests`, `numpy`), you MUST declare them in a comment at the top of your code string: `# dependencies = ["package-name"]`.
+-   For interactive scripts that need user input via `input()`, you MUST set `"interactive": true` in the arguments. The user will interact with the script directly, and you will only receive a confirmation that the session ended.
 
 **Example of `execute_python_code`:**
 ```
