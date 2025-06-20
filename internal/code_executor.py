@@ -6,7 +6,11 @@ import re
 import subprocess
 import tempfile
 import textwrap
+from typing import TYPE_CHECKING
 from .tool_scaffolding import generate_tools_file_content, TOOLS_GENERATED_FILENAME
+
+if TYPE_CHECKING:
+    from .ui import TerminalUI
 
 # A mapping of common import names to their corresponding package names for uv.
 IMPORT_TO_PACKAGE_MAP = {
@@ -121,6 +125,8 @@ def execute_python_code(
     all_tools_metadata: list,
     gateway_host: str,
     gateway_port: int,
+    interactive: bool = False,
+    ui: 'TerminalUI' = None
 ) -> dict:
     """
     Executes the given Python code in a sandboxed environment using 'uv run'.
@@ -137,10 +143,27 @@ def execute_python_code(
         with open(os.path.join(script_dir, "main.py"), 'w', encoding='utf-8') as f:
             f.write(processed_code)
 
-        logging.info("Executing processed code in sandbox...")
-        proc = subprocess.run(["uv", "run", "main.py"], capture_output=True, text=True, timeout=120, cwd=script_dir)
+        if interactive:
+            if ui:
+                ui.display_interactive_session_start()
+            
+            logging.info("Executing processed code in INTERACTIVE sandbox...")
+            # Let the subprocess inherit stdin, stdout, stderr from the parent
+            proc = subprocess.run(["uv", "run", "main.py"], text=True, cwd=script_dir)
+            
+            if ui:
+                ui.display_interactive_session_end(proc.returncode)
 
-        filtered_stderr = "\n".join([ln for ln in proc.stderr.splitlines() if not (ln.startswith(("Installed ", "Resolved ", "Downloaded ", "Audited ")) or ln.strip()=="")])
+            return {
+                "stdout": "Interactive session completed.",
+                "stderr": f"Process exited with return code {proc.returncode}.",
+                "error": f"Script exited with code {proc.returncode}." if proc.returncode != 0 else None
+            }
+        else:
+            logging.info("Executing processed code in sandbox...")
+            proc = subprocess.run(["uv", "run", "main.py"], capture_output=True, text=True, timeout=120, cwd=script_dir)
 
-        logging.info("Tool code execution finished.")
-        return {"stdout": proc.stdout.strip(), "stderr": filtered_stderr, "error": f"Script exited with code {proc.returncode}." if proc.returncode != 0 else None}
+            filtered_stderr = "\n".join([ln for ln in proc.stderr.splitlines() if not (ln.startswith(("Installed ", "Resolved ", "Downloaded ", "Audited ")) or ln.strip()=="")])
+
+            logging.info("Tool code execution finished.")
+            return {"stdout": proc.stdout.strip(), "stderr": filtered_stderr, "error": f"Script exited with code {proc.returncode}." if proc.returncode != 0 else None}
