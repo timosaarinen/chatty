@@ -54,15 +54,18 @@ def process_tool_code(code: str) -> str:
     lines = code.splitlines()
     packages = set()
 
-    # Fast path for existing /// script block
-    script_block_match = re.search(r"(# /// script\s*\n\s*#\s*dependencies\s*=\s*(\[.*\])\s*\n\s*# ///\s*\n?)", code, re.DOTALL)
-    if script_block_match:
+    # Find the last /// script block to handle cases where there are multiple blocks, for example inside <think> tags.
+    script_block_regex = r"(# /// script\s*\n\s*#\s*dependencies\s*=\s*(\[.*\])\s*\n\s*# ///\s*\n?)"
+    all_matches = list(re.finditer(script_block_regex, code, re.DOTALL))
+    if all_matches:
+        script_block_match = all_matches[-1] # Get the last match
         try:
             packages.update(json.loads(script_block_match.group(2)))
         except json.JSONDecodeError:
             pass # Ignore malformed json
-        # Remove the block for now, we'll add it back later.
-        code = code.replace(script_block_match.group(1), "", 1)
+        
+        # Remove all script blocks to avoid confusion, then we'll add a clean one back later.
+        code = re.sub(script_block_regex, "", code)
         lines = code.splitlines()
 
     # Find and process single-line dependency comments
