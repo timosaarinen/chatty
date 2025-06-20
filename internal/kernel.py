@@ -308,6 +308,16 @@ class Kernel:
         return f"call_{self._tool_call_id_counter}"
 
     def _extract_tool_content(self, response_text: str) -> str | None:
-        """Extracts content from between <tool> tags."""
-        match = re.search(f"{re.escape(TOOL_TAG_START)}(.*?){re.escape(TOOL_TAG_END)}", response_text, re.DOTALL)
-        return match.group(1).strip() if match else None
+        """Extracts content from the last well-formed <tool> block."""
+        last_tool_start_index = response_text.rfind(TOOL_TAG_START)
+        if last_tool_start_index == -1:
+            return None
+
+        content_start_index = last_tool_start_index + len(TOOL_TAG_START)
+        
+        end_tag_index = response_text.find(TOOL_TAG_END, content_start_index)
+        if end_tag_index == -1:
+            return None # Unterminated tool block
+
+        content = response_text[content_start_index:end_tag_index].strip()
+        return content if content else None
