@@ -1,2 +1,7 @@
-__pycache__
-tmp
+__pycache__/
+tmp/
+logs/
+venv/
+.pytest_cache/
+.env
+.venv

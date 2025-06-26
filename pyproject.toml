@@ -1,0 +1,23 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "chatty"
+version = "0.2.0"
+description = "A code AI agent."
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "litellm",
+    "rich",
+]
+
+[project.scripts]
+chatty = "chatty:main"
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-mock",
+]
